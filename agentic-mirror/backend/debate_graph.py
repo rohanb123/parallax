@@ -19,7 +19,7 @@ import json
 import logging
 from typing import AsyncGenerator, TypedDict
 
-from agents import BIAS_AGENTS, call_agent, build_round_prompt
+from agents import BIAS_AGENTS, call_agent, build_round_prompt, client, MODEL
 
 logger = logging.getLogger(__name__)
 
@@ -148,9 +148,16 @@ async def run_debate(
             f"In 2-3 sentences, give them a concrete, actionable recommendation that "
             f"corrects for this bias. Be direct and practical, not generic."
         )
-        recommendation = await call_agent("rationalist", rec_prompt)
-        if recommendation.startswith("{"):
-            recommendation = json.loads(recommendation).get("rationalist_summary", recommendation)
+        message = await client.messages.create(
+            model=MODEL,
+            max_tokens=300,
+            system=(
+                "You are a neutral decision-making advisor. Give clear, actionable advice "
+                "that helps the user see past their cognitive bias. No JSON, just plain text."
+            ),
+            messages=[{"role": "user", "content": rec_prompt}],
+        )
+        recommendation = message.content[0].text
     except Exception as e:
         logger.warning("Failed to generate recommendation: %s", e)
 
