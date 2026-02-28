@@ -17,7 +17,7 @@ from fastapi.responses import StreamingResponse
 from dotenv import load_dotenv
 
 from schemas import DebateRequest, EmbeddingsRequest, EmbeddingsResponse
-from debate_graph import build_debate_graph, DebateState
+from debate_graph import run_debate
 from embeddings import embed_texts, reduce_to_2d, label_axes
 
 load_dotenv()
@@ -55,12 +55,12 @@ async def debate(request: DebateRequest):
     """
 
     async def event_stream():
-        # TODO: Initialize DebateState from request
-        # TODO: Build and invoke the LangGraph debate graph
-        # TODO: On each round completion, yield SSE event as JSON
-        # TODO: After round 3, yield the FinalEvent
-        # TODO: Handle errors gracefully — emit last valid scores and close stream
-        yield "data: {}\n\n"  # Placeholder
+        try:
+            async for event in run_debate(request.dilemma, request.bias_overrides):
+                yield f"data: {json.dumps(event)}\n\n"
+        except Exception as e:
+            error_event = {"type": "error", "message": str(e)}
+            yield f"data: {json.dumps(error_event)}\n\n"
 
     return StreamingResponse(
         event_stream(),

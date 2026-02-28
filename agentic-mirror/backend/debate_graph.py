@@ -1,113 +1,166 @@
 """
-Agentic Mirror — LangGraph Debate Graph Definition
-See AGENT.md §6 — The Debate Loop
+Agentic Mirror — Debate Loop Engine
+====================================
+Runs the 3-round multi-agent debate using plain asyncio.
 
-Graph Structure (AGENT.md §6):
-    START
-      └─► [Parallel Fan-Out]
-            ├─► loss_aversion_node
-            ├─► sunk_cost_node
-            ├─► optimism_bias_node
-            └─► status_quo_node
-                  └─► [Join]
-                        └─► rationalist_node  (scores + emits SSE event)
-                              └─► [Loop back × 3 rounds]
-                                    └─► END
+Loop structure:
+    For each round (1-3):
+        1. Fan-out  — 4 bias agents argue in parallel via asyncio.gather
+        2. Fan-in   — Rationalist scores all arguments
+        3. Yield    — SSE event with dialogue, scores, key phrases
+    After round 3:
+        4. Yield FinalEvent with dominant bias + recommendation
 
-Hard-coded to 3 rounds (AGENT.md §14 Rule 8).
+Hard-coded to 3 rounds.
 """
 
-from typing import TypedDict
-from langgraph.graph import StateGraph, END
+import asyncio
+import json
+import logging
+from typing import AsyncGenerator, TypedDict
 
 from agents import BIAS_AGENTS, call_agent, build_round_prompt
 
+logger = logging.getLogger(__name__)
 
-# ──────────────────────────────────────────────
-# State Schema — See AGENT.md §6
-# ──────────────────────────────────────────────
+
+AGENT_LABELS = {
+    "loss_aversion": "LOSS AVERSION",
+    "sunk_cost": "SUNK COST FALLACY",
+    "optimism_bias": "OPTIMISM BIAS",
+    "status_quo": "STATUS QUO BIAS",
+}
+
+MAX_ROUNDS = 3
+
 
 class DebateState(TypedDict):
-    dilemma: str                        # Original user input
-    round: int                          # Current debate round (1-3)
-    agent_outputs: dict[str, str]       # Latest argument per agent
-    history: list[dict]                 # All prior rounds
-    scores: dict[str, int]             # Latest Rationalist scores
-    dominant_agent: str                 # Highest scoring agent
-    key_phrases: list[str]             # Extracted salient phrases
-    bias_overrides: dict[str, int]     # User slider values (0-100)
+    dilemma: str
+    round: int
+    agent_outputs: dict[str, str]
+    history: list[dict]
+    scores: dict[str, int]
+    dominant_agent: str
+    key_phrases: list[str]
+    bias_overrides: dict[str, int]
 
 
-MAX_ROUNDS = 3  # AGENT.md §14 Rule 8 — exactly 3 rounds
-
-
-# ──────────────────────────────────────────────
-# Node Functions
-# ──────────────────────────────────────────────
-
-async def bias_agent_node(state: DebateState, agent_name: str) -> dict:
+async def run_debate(
+    dilemma: str,
+    bias_overrides: dict[str, int] | None = None,
+) -> AsyncGenerator[dict, None]:
     """
-    Node for a single bias agent. Builds the round prompt, calls Claude,
-    and returns the agent's argument.
+    Run a full 3-round debate, yielding SSE-ready event dicts.
 
-    This runs in parallel with the other 3 bias agents during fan-out.
+    Args:
+        dilemma: The user's decision dilemma text.
+        bias_overrides: Per-agent weight overrides (0-100). Defaults to 100 each.
+
+    Yields:
+        dict with "type": "round" — after each of the 3 rounds
+        dict with "type": "final" — after the last round
     """
-    # TODO: Build prompt with build_round_prompt()
-    # TODO: Apply bias_overrides — if override < 100, scale down this agent's influence
-    # TODO: Call call_agent(agent_name, prompt)
-    # TODO: Return updated agent_outputs
-    pass
+    if bias_overrides is None:
+        bias_overrides = {agent: 100 for agent in BIAS_AGENTS}
 
+    history: list[dict] = []
+    scores: dict[str, int] | None = None
+    dominant_agent = ""
+    key_phrases: list[str] = []
+    rationalist_summary = ""
 
-async def rationalist_node(state: DebateState) -> dict:
-    """
-    The Rationalist moderator node. Receives all 4 bias agent outputs,
-    scores their dominance, and emits an SSE event.
+    for round_num in range(1, MAX_ROUNDS + 1):
 
-    Runs after the parallel fan-out join.
-    See AGENT.md §5 (Agent 5) for the expected JSON output shape.
-    See AGENT.md §14 Rule 3 — scores must sum to 100.
-    """
-    # TODO: Format all agent outputs into a single prompt for the Rationalist
-    # TODO: Call call_agent("rationalist", prompt)
-    # TODO: Parse JSON response, validate scores sum to 100
-    # TODO: Update state with scores, dominant_agent, key_phrases
-    # TODO: Emit SSE event (DebateRoundEvent) via callback
-    # TODO: Increment round counter
-    pass
+        # ── Fan-out: call all 4 bias agents in parallel ──
+        active_agents = [a for a in BIAS_AGENTS if bias_overrides.get(a, 100) > 0]
 
+        prompts = {
+            agent: build_round_prompt(agent, dilemma, round_num, history, scores)
+            for agent in active_agents
+        }
 
-def should_continue(state: DebateState) -> str:
-    """
-    Conditional edge: loop back for another round or end.
-    Returns "continue" if round < MAX_ROUNDS, "end" otherwise.
-    """
-    # TODO: Check state["round"] against MAX_ROUNDS
-    # TODO: Return "continue" or "end"
-    pass
+        results = await asyncio.gather(*[
+            call_agent(agent, prompts[agent])
+            for agent in active_agents
+        ])
 
+        agent_outputs = dict(zip(active_agents, results))
 
-# ──────────────────────────────────────────────
-# Graph Construction
-# ──────────────────────────────────────────────
+        for agent in active_agents:
+            override = bias_overrides.get(agent, 100)
+            if 0 < override < 100:
+                agent_outputs[agent] = f"[weight: {override}%] {agent_outputs[agent]}"
 
-def build_debate_graph() -> StateGraph:
-    """
-    Constructs the LangGraph StateGraph for the multi-agent debate.
+        # ── Fan-in: send all arguments to the Rationalist ──
+        rationalist_prompt = f"USER DILEMMA:\n{dilemma}\n\nAGENT ARGUMENTS (Round {round_num}):\n"
+        for agent in BIAS_AGENTS:
+            label = AGENT_LABELS[agent]
+            if agent in agent_outputs:
+                rationalist_prompt += f"\n{label}:\n{agent_outputs[agent]}\n"
+            else:
+                rationalist_prompt += f"\n{label}:\n[Agent suppressed by user]\n"
 
-    Structure:
-        - 4 bias agent nodes run in parallel (fan-out)
-        - Rationalist node joins and scores (fan-in)
-        - Conditional edge loops back for 3 total rounds
-        - After round 3, transitions to END
+        raw_response = await call_agent("rationalist", rationalist_prompt)
 
-    Returns:
-        Compiled LangGraph StateGraph ready to invoke.
-    """
-    # TODO: Create StateGraph(DebateState)
-    # TODO: Add bias agent nodes (parallel fan-out)
-    # TODO: Add rationalist node (fan-in / join)
-    # TODO: Add conditional edge (should_continue)
-    # TODO: Set entry point
-    # TODO: Compile and return graph
-    pass
+        try:
+            parsed = json.loads(raw_response)
+        except json.JSONDecodeError:
+            logger.error("Rationalist returned unparseable response in round %d", round_num)
+            parsed = {
+                "scores": {a: 25 for a in BIAS_AGENTS},
+                "dominant_agent": "none",
+                "key_phrases": [],
+                "rationalist_summary": "Scoring unavailable.",
+            }
+
+        scores = parsed["scores"]
+        dominant_agent = parsed["dominant_agent"]
+        key_phrases = parsed.get("key_phrases", [])
+        rationalist_summary = parsed.get("rationalist_summary", "")
+
+        history.append({
+            "round": round_num,
+            "arguments": agent_outputs,
+        })
+
+        # ── Yield round event ──
+        yield {
+            "type": "round",
+            "round": round_num,
+            "dialogue": [
+                {"agent": agent, "text": text}
+                for agent, text in agent_outputs.items()
+            ],
+            "scores": scores,
+            "dominant_agent": dominant_agent,
+            "key_phrases": key_phrases,
+            "rationalist_summary": rationalist_summary,
+        }
+
+    # ── Generate bias-corrected recommendation ──
+    recommendation = None
+    try:
+        rec_prompt = (
+            f"A user described this dilemma:\n\"{dilemma}\"\n\n"
+            f"After analysis, their dominant cognitive bias is {dominant_agent.replace('_', ' ')} "
+            f"at {scores.get(dominant_agent, 0)}%.\n"
+            f"Key biased phrases: {key_phrases}\n\n"
+            f"In 2-3 sentences, give them a concrete, actionable recommendation that "
+            f"corrects for this bias. Be direct and practical, not generic."
+        )
+        recommendation = await call_agent("rationalist", rec_prompt)
+        if recommendation.startswith("{"):
+            recommendation = json.loads(recommendation).get("rationalist_summary", recommendation)
+    except Exception as e:
+        logger.warning("Failed to generate recommendation: %s", e)
+
+    # ── Yield final event ──
+    dominant_score = scores.get(dominant_agent, 0) if scores else 0
+
+    yield {
+        "type": "final",
+        "dominant_bias": dominant_agent,
+        "dominance_percentage": dominant_score,
+        "bias_corrected_recommendation": recommendation,
+        "embedding_snapshot": "trigger_fetch",
+    }
