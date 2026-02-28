@@ -84,12 +84,27 @@ async def embeddings(request: EmbeddingsRequest):
 
     See AGENT.md §9 — The Embeddings Pipeline.
     """
-    # TODO: Combine request.sentences + [request.user_input]
-    # TODO: Call embed_texts() on the combined list
-    # TODO: Call reduce_to_2d() to get 2D coordinates
-    # TODO: Label axes via label_axes()
-    # TODO: Build and return EmbeddingsResponse with points, user_point, axes
-    pass
+    all_texts = request.sentences + [request.user_input]
+    raw_embeddings = embed_texts(all_texts)
+
+    coords, pca = reduce_to_2d(raw_embeddings)
+
+    axes = label_axes(
+        pca.explained_variance_ratio_,
+        pca.components_,
+        texts=all_texts,
+        embeddings=raw_embeddings,
+    )
+
+    points = [
+        {"x": coords[i][0], "y": coords[i][1], "label": request.sentences[i], "agent": ""}
+        for i in range(len(request.sentences))
+    ]
+
+    user_idx = len(request.sentences)
+    user_point = {"x": coords[user_idx][0], "y": coords[user_idx][1]}
+
+    return EmbeddingsResponse(points=points, user_point=user_point, axes=axes)
 
 
 # ──────────────────────────────────────────────
