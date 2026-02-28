@@ -103,18 +103,6 @@ Now make your argument for Round {round}.
 # Claude Call Wrapper
 # ──────────────────────────────────────────────
 
-_LEADING_BRACKET_RE = re.compile(r"^\s*(\[[^\[\]]*\])\s*")
-
-def _strip_leading_bracket(text: str) -> tuple[str | None, str]:
-    """
-    If text begins with '[...]' (e.g. '[weight: 80%] hello'),
-    return (bracket, remainder). Otherwise (None, text).
-    """
-    m = _LEADING_BRACKET_RE.match(text)
-    if not m:
-        return None, text
-    return m.group(1), text[m.end():]
-
 def _extract_json_object(payload: Any) -> dict:
     """
     Extract & parse the first top-level JSON object from:
