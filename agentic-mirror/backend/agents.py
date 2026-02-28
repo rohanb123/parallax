@@ -8,13 +8,18 @@ character or acknowledge other valid perspectives (AGENT.md §14 Rule 2).
 Model: claude-sonnet-4-20250514 (AGENT.md §14 Rule 1)
 """
 
+import json
+import logging
 import os
-from anthropic import Anthropic
+
+from anthropic import AsyncAnthropic
 from dotenv import load_dotenv
 
 load_dotenv()
 
-client = Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
+logger = logging.getLogger(__name__)
+
+client = AsyncAnthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
 
 MODEL = "claude-sonnet-4-20250514"  # AGENT.md §14 Rule 1 — never change this
 
@@ -109,12 +114,49 @@ async def call_agent(agent_name: str, user_prompt: str) -> str:
 
     See AGENT.md §14 Rule 10 — fail gracefully on API errors.
     """
-    # TODO: Implement Claude API call
-    #   - Use client.messages.create(model=MODEL, ...)
-    #   - system = AGENT_SYSTEM_PROMPTS[agent_name]
-    #   - Handle API errors gracefully (return last valid state, don't crash)
-    #   - For the rationalist, parse and validate JSON response
-    pass
+    try:
+        message = await client.messages.create(
+            model=MODEL,
+            max_tokens=1024,
+            system=AGENT_SYSTEM_PROMPTS[agent_name],
+            messages=[{"role": "user", "content": user_prompt}],
+        )
+        text = message.content[0].text
+
+        if agent_name == "rationalist":
+            parsed = json.loads(text)
+            total = sum(parsed["scores"].values())
+            if total != 100:
+                factor = 100 / total
+                parsed["scores"] = {
+                    k: round(v * factor) for k, v in parsed["scores"].items()
+                }
+                diff = 100 - sum(parsed["scores"].values())
+                if diff != 0:
+                    top = parsed["dominant_agent"]
+                    parsed["scores"][top] += diff
+            return json.dumps(parsed)
+
+        return text
+
+    except json.JSONDecodeError as e:
+        logger.error("Rationalist returned invalid JSON: %s", e)
+        return json.dumps({
+            "scores": {"loss_aversion": 25, "sunk_cost": 25, "optimism_bias": 25, "status_quo": 25},
+            "dominant_agent": "none",
+            "key_phrases": [],
+            "rationalist_summary": "Scoring unavailable — invalid model response.",
+        })
+    except Exception as e:
+        logger.error("Agent '%s' API call failed: %s", agent_name, e)
+        if agent_name == "rationalist":
+            return json.dumps({
+                "scores": {"loss_aversion": 25, "sunk_cost": 25, "optimism_bias": 25, "status_quo": 25},
+                "dominant_agent": "none",
+                "key_phrases": [],
+                "rationalist_summary": "Scoring unavailable due to API error.",
+            })
+        return f"[{agent_name} could not respond this round]"
 
 
 def build_round_prompt(
@@ -137,7 +179,25 @@ def build_round_prompt(
     Returns:
         Formatted prompt string ready to send to call_agent().
     """
-    # TODO: Build history_summary from history list
-    # TODO: Format last_scores or "N/A" for round 1
-    # TODO: Return ROUND_PROMPT_TEMPLATE.format(...)
-    pass
+    if history:
+        lines = []
+        for past_round in history:
+            lines.append(f"── Round {past_round.get('round', '?')} ──")
+            for agent, text in past_round.get("arguments", {}).items():
+                lines.append(f"  {agent}: {text}")
+        history_summary = "\n".join(lines)
+    else:
+        history_summary = "N/A (this is Round 1)"
+
+    if last_scores:
+        scores_str = ", ".join(f"{k}: {v}" for k, v in last_scores.items())
+    else:
+        scores_str = "N/A (this is Round 1)"
+
+    return ROUND_PROMPT_TEMPLATE.format(
+        dilemma=dilemma,
+        history_summary=history_summary,
+        last_scores=scores_str,
+        round=round_num,
+        agent_name=agent_name,
+    )
