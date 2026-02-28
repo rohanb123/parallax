@@ -7,6 +7,7 @@ PCA is the default dimensionality reduction (AGENT.md §14 Rule 9).
 UMAP available as optional upgrade, not default.
 """
 
+import json
 import logging
 import os
 
@@ -36,18 +37,20 @@ def embed_texts(texts: list[str]) -> list[list[float]]:
 
     See AGENT.md §9 — uses text-embedding-3-small model.
     """
+    if not texts:
+        return []
     try:
         response = openai_client.embeddings.create(
             input=texts,
             model="text-embedding-3-small",
         )
-        return [item.embedding for item in response.data]
+        return [item.embedding for item in sorted(response.data, key=lambda x: x.index)]
     except Exception as e:
         logger.error("Embedding API call failed: %s", e)
-        raise
+        raise RuntimeError(f"OpenAI embeddings failed: {e}") from e
 
 
-def reduce_to_2d(embeddings: list[list[float]]) -> list[tuple[float, float]]:
+def reduce_to_2d(embeddings: list[list[float]]) -> tuple[list[tuple[float, float]], PCA]:
     """
     Reduce high-dimensional embeddings to 2D using PCA.
 
@@ -55,14 +58,19 @@ def reduce_to_2d(embeddings: list[list[float]]) -> list[tuple[float, float]]:
         embeddings: List of embedding vectors from embed_texts().
 
     Returns:
-        List of (x, y) tuples in 2D PCA space.
+        (points, pca): List of (x, y) tuples in 2D PCA space, and the fitted
+        PCA model. Use pca.explained_variance_ratio_ and pca.components_
+        for label_axes().
 
     See AGENT.md §14 Rule 9 — PCA first (fast, deterministic).
     """
-    # TODO: Convert to numpy array
-    # TODO: Fit PCA(n_components=2) and transform
-    # TODO: Return as list of tuples
-    pass
+    if not embeddings:
+        return [], PCA(n_components=2)
+    arr = np.array(embeddings, dtype=np.float64)
+    pca = PCA(n_components=2)
+    transformed = pca.fit_transform(arr)
+    points = [tuple(row) for row in transformed]
+    return points, pca
 
 
 def reduce_to_2d_umap(embeddings: list[list[float]]) -> list[tuple[float, float]]:
@@ -76,10 +84,13 @@ def reduce_to_2d_umap(embeddings: list[list[float]]) -> list[tuple[float, float]
     Returns:
         List of (x, y) tuples in 2D UMAP space.
     """
-    # TODO: Import umap
-    # TODO: Fit UMAP(n_components=2) and transform
-    # TODO: Return as list of tuples
-    pass
+    if not embeddings:
+        return []
+    import umap
+    arr = np.array(embeddings, dtype=np.float64)
+    reducer = umap.UMAP(n_components=2)
+    transformed = reducer.fit_transform(arr)
+    return [tuple(row) for row in transformed]
 
 
 def label_axes(
@@ -89,7 +100,7 @@ def label_axes(
     embeddings: np.ndarray | None = None,
 ) -> dict[str, str]:
     """
-    Name the PCA axes based on top-loading sentences.
+    Name the PCA axes using a fast Claude call for semantic labels.
 
     Args:
         variance_ratio: PCA explained variance ratio.
@@ -100,8 +111,7 @@ def label_axes(
     Returns:
         {"x": "Risk vs Safety", "y": "Past vs Future"} (example).
 
-    See AGENT.md §9 — uses a fast Claude call to name axes based on
-    top-loading sentences in each principal component.
+    See AGENT.md §9 — uses a fast Claude call to name axes.
     """
     if texts is None or embeddings is None:
         return {
@@ -115,7 +125,6 @@ def label_axes(
     axis_labels = {}
     for i, axis in enumerate(["x", "y"]):
         ranked = np.argsort(np.abs(projections[:, i]))[::-1]
-        top_texts = [texts[j] for j in ranked[:5]]
         positive = [texts[j] for j in ranked[:5] if projections[j, i] > 0]
         negative = [texts[j] for j in ranked[:5] if projections[j, i] < 0]
 
