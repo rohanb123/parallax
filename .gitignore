@@ -1,5 +1,5 @@
 # Environment & secrets
-.env
+agentic-mirror/backend/.env
 .env.*
 !.env.example
 
