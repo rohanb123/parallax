@@ -47,7 +47,7 @@ export default function DebateStream({ rounds = [], finalResult = null, currentS
   }, [rounds, finalResult]);
 
   return (
-    <div ref={scrollRef} className="p-4 overflow-y-auto h-full space-y-4">
+    <div ref={scrollRef} className="px-6 py-4 overflow-y-auto h-full space-y-8">
       {rounds.length === 0 && !error && (
         <p className="text-white/40 text-sm italic">
           Waiting for debate to begin...
