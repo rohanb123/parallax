@@ -14,16 +14,51 @@ import os
 import re
 from typing import Any
 
-from anthropic import AsyncAnthropic
 from dotenv import load_dotenv
 
 load_dotenv()
 
 logger = logging.getLogger(__name__)
 
-client = AsyncAnthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# MODEL TOGGLE — comment/uncomment ONE block below
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-MODEL = "claude-sonnet-4-20250514"  # AGENT.md §14 Rule 1 — never change this
+# ── DEPLOYMENT (Anthropic Claude) ──
+# from anthropic import AsyncAnthropic
+# _client = AsyncAnthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
+# MODEL = "claude-sonnet-4-20250514"
+# _PROVIDER = "anthropic"
+
+# ── TESTING (OpenAI gpt-4o-mini — cheap for UI testing) ──
+from openai import AsyncOpenAI
+_client = AsyncOpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+MODEL = "gpt-4o-mini"
+_PROVIDER = "openai"
+
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+
+async def llm_call(system_prompt: str, user_prompt: str, max_tokens: int = 1024) -> str:
+    """Unified LLM call that works with whichever provider is active above."""
+    if _PROVIDER == "openai":
+        resp = await _client.chat.completions.create(
+            model=MODEL,
+            max_tokens=max_tokens,
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
+        )
+        return resp.choices[0].message.content
+    else:
+        resp = await _client.messages.create(
+            model=MODEL,
+            max_tokens=max_tokens,
+            system=system_prompt,
+            messages=[{"role": "user", "content": user_prompt}],
+        )
+        return resp.content[0].text
 
 
 # ──────────────────────────────────────────────
@@ -208,13 +243,7 @@ async def call_agent(agent_name: str, user_prompt: str) -> str:
     See AGENT.md §14 Rule 10 — fail gracefully on API errors.
     """
     try:
-        message = await client.messages.create(
-            model=MODEL,
-            max_tokens=1024,
-            system=AGENT_SYSTEM_PROMPTS[agent_name],
-            messages=[{"role": "user", "content": user_prompt}],
-        )
-        text = message.content[0].text
+        text = await llm_call(AGENT_SYSTEM_PROMPTS[agent_name], user_prompt)
 
         if agent_name == "rationalist":
             # Robustly parse JSON even if wrapped in ```json ... ``` or has extra prose
