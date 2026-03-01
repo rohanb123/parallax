@@ -48,6 +48,7 @@ class DebateState(TypedDict):
 async def run_debate(
     dilemma: str,
     bias_overrides: dict[str, int] | None = None,
+    primary_concern: str | None = None,
 ) -> AsyncGenerator[dict, None]:
     """
     Run a full 3-round debate, yielding SSE-ready event dicts.
@@ -55,6 +56,7 @@ async def run_debate(
     Args:
         dilemma: The user's decision dilemma text.
         bias_overrides: Per-agent weight overrides (0-100). Defaults to 100 each.
+        primary_concern: The user's primary concern category (e.g. time, money, identity, social).
 
     Yields:
         dict with "type": "round" — after each of the 3 rounds
@@ -62,6 +64,18 @@ async def run_debate(
     """
     if bias_overrides is None:
         bias_overrides = {agent: 100 for agent in BIAS_AGENTS}
+
+    # Enrich the dilemma with the user's primary concern if provided
+    enriched_dilemma = dilemma
+    if primary_concern:
+        concern_labels = {
+            "time": "time and scheduling",
+            "money": "money and finances",
+            "identity": "personal identity and self-image",
+            "social": "social relationships and reputation",
+        }
+        concern_text = concern_labels.get(primary_concern, primary_concern)
+        enriched_dilemma = f"[Primary concern: {concern_text}]\n{dilemma}"
 
     history: list[dict] = []
     scores: dict[str, int] | None = None
@@ -75,7 +89,7 @@ async def run_debate(
         active_agents = [a for a in BIAS_AGENTS if bias_overrides.get(a, 100) > 0]
 
         prompts = {
-            agent: build_round_prompt(agent, dilemma, round_num, history, scores)
+            agent: build_round_prompt(agent, enriched_dilemma, round_num, history, scores)
             for agent in active_agents
         }
 
@@ -92,7 +106,7 @@ async def run_debate(
                 agent_outputs[agent] = f"[weight: {override}%] {agent_outputs[agent]}"
 
         # ── Fan-in: send all arguments to the Rationalist ──
-        rationalist_prompt = f"USER DILEMMA:\n{dilemma}\n\nAGENT ARGUMENTS (Round {round_num}):\n"
+        rationalist_prompt = f"USER DILEMMA:\n{enriched_dilemma}\n\nAGENT ARGUMENTS (Round {round_num}):\n"
         for agent in BIAS_AGENTS:
             label = AGENT_LABELS[agent]
             if agent in agent_outputs:
@@ -141,7 +155,7 @@ async def run_debate(
     recommendation = None
     try:
         rec_prompt = (
-            f"A user described this dilemma:\n\"{dilemma}\"\n\n"
+            f"A user described this dilemma:\n\"{enriched_dilemma}\"\n\n"
             f"After analysis, their dominant cognitive bias is {dominant_agent.replace('_', ' ')} "
             f"at {scores.get(dominant_agent, 0)}%.\n"
             f"Key biased phrases: {key_phrases}\n\n"

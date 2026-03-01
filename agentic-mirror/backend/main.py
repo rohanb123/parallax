@@ -56,7 +56,7 @@ async def debate(request: DebateRequest):
 
     async def event_stream():
         try:
-            async for event in run_debate(request.dilemma, request.bias_overrides):
+            async for event in run_debate(request.dilemma, request.bias_overrides, request.primary_concern):
                 yield f"data: {json.dumps(event)}\n\n"
         except Exception as e:
             error_event = {"type": "error", "message": str(e)}

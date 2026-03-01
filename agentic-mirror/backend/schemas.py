@@ -16,6 +16,7 @@ from typing import Optional
 class DebateRequest(BaseModel):
     """POST /debate request body. See AGENT.md §7."""
     dilemma: str
+    primary_concern: Optional[str] = None
     bias_overrides: Optional[dict[str, int]] = {
         "loss_aversion": 100,
         "sunk_cost": 100,
