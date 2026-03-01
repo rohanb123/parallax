@@ -67,6 +67,9 @@ export default function ConcernRing({ values = [], selected, onChange }) {
   const containerRef = useRef(null);
   const dragStart = useRef(null);
   const rotationAtDragStart = useRef(0);
+  const isDragging = useRef(false);
+  const pointerIdRef = useRef(null);
+  const DRAG_THRESHOLD = 5; // px of movement before entering drag mode
 
   /** Fan labels out to their ring positions */
   const fanOut = useCallback(() => {
@@ -77,15 +80,26 @@ export default function ConcernRing({ values = [], selected, onChange }) {
 
   // Pointer handlers for drag
   const handlePointerDown = useCallback((e) => {
-    e.currentTarget.setPointerCapture(e.pointerId);
+    // Don't capture yet — wait until drag threshold is exceeded
+    // so label click events can still fire for quick taps
+    pointerIdRef.current = e.pointerId;
     dragStart.current = { x: e.clientX, y: e.clientY };
     rotationAtDragStart.current = rotation.get();
+    isDragging.current = false;
     fanOut();
   }, [rotation, fanOut]);
 
   const handlePointerMove = useCallback((e) => {
     if (!dragStart.current) return;
     const dx = e.clientX - dragStart.current.x;
+    const dy = e.clientY - dragStart.current.y;
+    // Only enter drag mode after exceeding threshold
+    if (!isDragging.current) {
+      if (Math.sqrt(dx * dx + dy * dy) < DRAG_THRESHOLD) return;
+      isDragging.current = true;
+      // NOW capture the pointer so drag continues even outside the container
+      try { e.currentTarget.setPointerCapture(pointerIdRef.current); } catch (_) {}
+    }
     // Map horizontal drag pixels to rotation (negative = clockwise looks right)
     const dragSensitivity = 0.008;
     rotation.set(rotationAtDragStart.current + dx * dragSensitivity);
@@ -117,8 +131,12 @@ export default function ConcernRing({ values = [], selected, onChange }) {
   }, [rotation, count, sliceAngle, values, onChange]);
 
   const handlePointerUp = useCallback(() => {
+    const wasDragging = isDragging.current;
     dragStart.current = null;
-    snapToNearest();
+    isDragging.current = false;
+    pointerIdRef.current = null;
+    // Only snap-to-nearest after a real drag; clicks are handled by label onClick
+    if (wasDragging) snapToNearest();
   }, [snapToNearest]);
 
   // Click to select a specific item
@@ -183,6 +201,7 @@ export default function ConcernRing({ values = [], selected, onChange }) {
             containerWidth={RING_WIDTH + 40}
             containerHeight={RING_HEIGHT * 2 + 60}
             onClick={() => handleItemClick(i)}
+            isDraggingRef={isDragging}
           />
         ))}
       </div>
@@ -205,6 +224,7 @@ function ConcernLabel({
   containerWidth,
   containerHeight,
   onClick,
+  isDraggingRef,
 }) {
   const labelRef = useRef(null);
   const centerX = containerWidth / 2;
@@ -243,7 +263,8 @@ function ConcernLabel({
       ref={labelRef}
       onClick={(e) => {
         e.stopPropagation();
-        onClick();
+        // Only handle click if we weren't dragging
+        if (!isDraggingRef?.current) onClick();
       }}
       className={`
         absolute top-0 left-0

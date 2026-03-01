@@ -59,7 +59,7 @@ function makeSquigglyCurve(start, end, seed, time) {
 }
 
 /** A single animated squiggly line between two positions */
-function SquigglyLine({ startPos, endPos, seed }) {
+function SquigglyLine({ startPos, endPos, seed, opacity = 1 }) {
   const lineRef = useRef();
   const glowRef = useRef();
   const timeRef = useRef(0);
@@ -107,7 +107,7 @@ function SquigglyLine({ startPos, endPos, seed }) {
         <meshBasicMaterial
           color="#ffffff"
           transparent
-          opacity={0.35}
+          opacity={0.35 * opacity}
         />
       </mesh>
       {/* Outer glow layer */}
@@ -116,7 +116,7 @@ function SquigglyLine({ startPos, endPos, seed }) {
         <meshBasicMaterial
           color="#ffffff"
           transparent
-          opacity={0.08}
+          opacity={0.08 * opacity}
           blending={THREE.AdditiveBlending}
         />
       </mesh>
@@ -129,7 +129,7 @@ function SquigglyLine({ startPos, endPos, seed }) {
  * @param {Object} props
  * @param {Array<[number,number,number]>} props.positions — array of all sphere positions (user first, then biases)
  */
-export default function ConnectionLines({ positions }) {
+export default function ConnectionLines({ positions, opacity = 1 }) {
   // Generate all unique pairs
   const pairs = useMemo(() => {
     const result = [];
@@ -153,6 +153,7 @@ export default function ConnectionLines({ positions }) {
           startPos={pair.start}
           endPos={pair.end}
           seed={pair.seed}
+          opacity={opacity}
         />
       ))}
     </group>

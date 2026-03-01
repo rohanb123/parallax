@@ -7,7 +7,7 @@
  * Auto-scrolls to the latest message as SSE events arrive.
  */
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { AGENT_COLORS, AGENT_DISPLAY_NAMES } from "../utils/agentColors";
 
@@ -23,8 +23,8 @@ import { AGENT_COLORS, AGENT_DISPLAY_NAMES } from "../utils/agentColors";
 export default function DebateStream({ rounds = [], finalResult = null, currentSpeaker = "", error = null, onDialogueClick = null, activeDialogueIndex = null }) {
   // Build a mapping from (roundIndex, turnIndex) → flat dialogue queue index
   // Must skip rationalist entries to match the dialogueQueue which filters them out
-  const flatIndexMap = useRef(new Map());
-  useEffect(() => {
+  // Computed during render (useMemo) so it's immediately available on remount
+  const flatIndexMap = useMemo(() => {
     const map = new Map();
     let flatIdx = 0;
     for (let r = 0; r < rounds.length; r++) {
@@ -35,7 +35,7 @@ export default function DebateStream({ rounds = [], finalResult = null, currentS
         flatIdx++;
       }
     }
-    flatIndexMap.current = map;
+    return map;
   }, [rounds]);
   const scrollRef = useRef(null);
 
@@ -47,7 +47,7 @@ export default function DebateStream({ rounds = [], finalResult = null, currentS
   }, [rounds, finalResult]);
 
   return (
-    <div ref={scrollRef} className="px-6 py-4 overflow-y-auto h-full space-y-8">
+    <div ref={scrollRef} className="px-6 sm:px-10 md:px-16 lg:px-24 py-4 overflow-y-auto h-full space-y-8">
       {rounds.length === 0 && !error && (
         <p className="text-white/40 text-sm italic">
           Waiting for debate to begin...
@@ -84,7 +84,7 @@ export default function DebateStream({ rounds = [], finalResult = null, currentS
               const displayName = AGENT_DISPLAY_NAMES[turn.agent] || turn.agent;
               const isSpeaking = currentSpeaker === turn.agent;
               const roundIdx = rounds.indexOf(round);
-              const flatIdx = flatIndexMap.current.get(`${roundIdx}-${i}`);
+              const flatIdx = flatIndexMap.get(`${roundIdx}-${i}`);
               const isActive = activeDialogueIndex != null && flatIdx === activeDialogueIndex;
 
               return (
