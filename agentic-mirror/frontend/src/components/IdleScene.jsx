@@ -109,7 +109,7 @@ export default function IdleScene() {
 
       {/* Minimal lighting */}
       <ambientLight intensity={0.15} />
-      <pointLight position={[-8, -8, -6]} intensity={0.3} color="#4A6FA5" />
+      <pointLight position={[-8, -8, -6]} intensity={0.3} color="#A855F7" />
       <pointLight position={[8, 6, 4]} intensity={0.2} color="#E2E8F0" />
 
       {/* Aurora ground plane */}

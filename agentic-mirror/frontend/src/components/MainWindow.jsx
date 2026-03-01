@@ -16,6 +16,7 @@ import AgentSphere from "./AgentSphere";
 import ConnectionLines from "./ConnectionLines";
 import AuroraFloor from "./AuroraFloor";
 import DebateStream from "./DebateStream";
+import HelpPanel from "./HelpPanel";
 import { useDebateStream } from "../hooks/useDebateStream";
 import { AGENT_COLORS, AGENT_DISPLAY_NAMES } from "../utils/agentColors";
 
@@ -81,7 +82,7 @@ function Scene({ scores, dominantAgent, currentSpeaker, isDebating }) {
         shadow-camera-near={0.5}
         shadow-camera-far={30}
       />
-      <pointLight position={[-10, -10, -5]} intensity={0.3} color="#4A6FA5" />
+      <pointLight position={[-10, -10, -5]} intensity={0.3} color="#A855F7" />
 
       {/* Aurora ground plane */}
       <AuroraFloor y={-4.5} />
@@ -289,6 +290,9 @@ export default function MainWindow() {
           </motion.div>
         )}
       </AnimatePresence>
+
+      {/* Help button + panel — bottom-left */}
+      <HelpPanel />
     </div>
   );
 }

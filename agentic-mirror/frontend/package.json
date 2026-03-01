@@ -2,7 +2,7 @@
   "name": "agentic-mirror-frontend",
   "private": true,
   "version": "0.1.0",
-  "description": "Agentic Mirror — A cognitive debugger that visualizes hidden biases in human decision-making",
+  "description": "Parallax — A cognitive debugger that visualizes hidden biases in human decision-making",
   "type": "module",
   "scripts": {
     "dev": "vite",

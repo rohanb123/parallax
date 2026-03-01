@@ -1,5 +1,5 @@
 /**
- * Agentic Mirror — Root Application Component
+ * Parallax — Root Application Component
  * See AGENT.md §8 — Frontend Component Map
  *
  * Routing: / (InputScreen) → /main (MainWindow)

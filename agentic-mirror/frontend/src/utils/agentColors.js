@@ -11,7 +11,7 @@ export const AGENT_COLORS = {
   loss_aversion: "#E53E3E",  // Deep red
   sunk_cost:     "#D69E2E",  // Amber
   optimism_bias: "#00B5D8",  // Electric cyan
-  status_quo:    "#4A6FA5",  // Steel blue
+  status_quo:    "#A855F7",  // Bright purple
   rationalist:   "#E2E8F0",  // White/silver
 };
 

@@ -16,7 +16,7 @@ export default {
         "agent-loss":     "#E53E3E", // Loss Aversion — Deep red
         "agent-sunk":     "#D69E2E", // Sunk Cost — Amber
         "agent-optimism": "#00B5D8", // Optimism Bias — Electric cyan
-        "agent-status":   "#4A6FA5", // Status Quo — Steel blue
+        "agent-status":   "#A855F7", // Status Quo — Bright purple
         "agent-rational": "#E2E8F0", // Rationalist — White/silver
 
         // App background

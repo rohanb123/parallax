@@ -27,7 +27,7 @@ The user describes a dilemma they're facing. Four AI bias agents argue over the 
 │  3. /debate endpoint initializes DebateState and runs the          │
 │     LangGraph debate graph (3 rounds, streamed via SSE)            │
 │                                                                     │
-│  ┌─── ROUND 1 ──────────────────────────────────────────────────┐  │
+│  ┌─────────────────────────────────────────────────────┐  │
 │  │                                                               │  │
 │  │  4. Parallel Fan-Out — 4 bias agents call Claude Sonnet 4     │  │
 │  │     simultaneously, each with their own system prompt:        │  │
@@ -61,7 +61,7 @@ The user describes a dilemma they're facing. Four AI bias agents argue over the 
 │  │         "status_quo": 20                                      │  │
 │  │       },                                                      │  │
 │  │       "dominant_agent": "loss_aversion",                      │  │
-│  │       "key_phrases": ["savings", "only last", "6 months"],    │  │
+│  │       "key_phras ROUND 1 es": ["savings", "only last", "6 months"],    │  │
 │  │       "rationalist_summary": "Fear of financial ruin is       │  │
 │  │         the strongest undercurrent in this decision."          │  │
 │  │     }                                                         │  │
