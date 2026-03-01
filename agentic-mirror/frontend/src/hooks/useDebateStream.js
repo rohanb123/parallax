@@ -38,35 +38,90 @@ export function useDebateStream() {
     setFinalResult(null);
     setError(null);
 
-    // TODO: POST to /debate with { dilemma, bias_overrides: biasOverrides }
-    // TODO: Read the response as an SSE stream
-    // TODO: On each "data:" event:
-    //   - Parse JSON
-    //   - If event.type === "final" → setFinalResult(event), setIsDebating(false)
-    //   - Otherwise → append to rounds, update scores and dominantAgent
-    // TODO: On error → setError, preserve last valid state, setIsDebating(false)
-    // TODO: Handle stream close cleanly
+    try {
+      const res = await fetch("http://localhost:8000/debate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ dilemma, bias_overrides: biasOverrides }),
+      });
+
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      if (!res.body) throw new Error("No response body (stream not supported)");
+
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+
+      // store a "cancel" handle in the ref so stopDebate can cancel reading
+      eventSourceRef.current = { cancel: () => reader.cancel() };
+
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+
+        const frames = buffer.split("\n\n");
+        buffer = frames.pop() || "";
+
+        for (const frame of frames) {
+          const dataLine = frame
+            .split("\n")
+            .find((l) => l.startsWith("data:"));
+          if (!dataLine) continue;
+
+          const jsonStr = dataLine.replace(/^data:\s*/, "");
+          let event;
+          try {
+            event = JSON.parse(jsonStr);
+          } catch {
+            continue;
+          }
+
+          if (event.type === "final") { // after the final round countains final result, update ui
+            setFinalResult(event);
+            setIsDebating(false);
+            eventSourceRef.current?.cancel?.(); // stop the stream
+            eventSourceRef.current = null;
+          } else if (event.type === "round") { // after a normal round update ui
+            setRounds((prev) => [...prev, event]);
+            setScores(event.scores || {});
+            setDominantAgent(event.dominant_agent || "");
+          } else if (event.type === "error") { // error
+            setError(event.message || "Stream error");
+            setIsDebating(false);
+          } // add some more ui updates like "Optimistic thinking..." or 
+        }   // "Rationalist is thinking..." or "Compiling final rec..."
+      }
+
+      setIsDebating(false);
+      eventSourceRef.current = null;
+    } catch (e) {
+      setError(String(e));
+      setIsDebating(false);
+      eventSourceRef.current = null;
+    }
   }, []);
 
   /**
    * Stop an in-progress debate.
    */
   const stopDebate = useCallback(() => {
-    if (eventSourceRef.current) {
-      eventSourceRef.current.close();
-      eventSourceRef.current = null;
+    if (eventSourceRef.current?.cancel) {
+      eventSourceRef.current.cancel();
     }
+    eventSourceRef.current = null;
     setIsDebating(false);
   }, []);
 
   return {
-    rounds,
-    scores,
-    dominantAgent,
-    isDebating,
-    finalResult,
-    error,
-    startDebate,
-    stopDebate,
-  };
+      rounds,
+      scores,
+      dominantAgent,
+      isDebating,
+      finalResult,
+      error,
+      startDebate,
+      stopDebate,
+    };
 }
