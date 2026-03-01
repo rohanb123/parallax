@@ -72,7 +72,7 @@ export default function HelpPanel() {
   return (
     <div
       className="fixed z-[70] w-11 h-11"
-      style={{ left: 24, bottom: 24 }}
+      style={{ left: 24, top: 24 }}
       ref={panelRef}
     >
       {/* ── Help toggle button (same style as Chat button) ── */}
@@ -97,11 +97,11 @@ export default function HelpPanel() {
       <AnimatePresence>
         {open && (
           <motion.div
-            initial={{ opacity: 0, y: 14 }}
+            initial={{ opacity: 0, y: -14 }}
             animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: 14 }}
+            exit={{ opacity: 0, y: -14 }}
             transition={{ duration: 0.32, ease: EASE }}
-            className="help-glass-panel absolute bottom-14 left-0
+            className="help-glass-panel absolute top-14 left-0
                        max-h-[60vh] overflow-y-auto rounded-2xl p-5"
             style={{
               width: "min(420px, calc(100vw - 48px))",

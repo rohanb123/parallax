@@ -261,10 +261,10 @@ export default function MainWindow() {
 
   return (
     <div className="relative w-full h-screen bg-[#111118] overflow-hidden">
-      {/* Re-Prompt button — top-left */}
+      {/* Re-Prompt button — top-right */}
       <button
         onClick={() => navigate("/")}
-        className="absolute top-5 left-5 z-50
+        className="!absolute top-5 right-5 z-50
                    px-5 py-2 rounded-full
                    glass glass-texture
                    text-white/80 text-sm font-medium
