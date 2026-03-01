@@ -8,6 +8,7 @@ character or acknowledge other valid perspectives (AGENT.md §14 Rule 2).
 Model: claude-sonnet-4-20250514 (AGENT.md §14 Rule 1)
 """
 
+import asyncio
 import json
 import logging
 import os
@@ -30,10 +31,14 @@ logger = logging.getLogger(__name__)
 # MODEL = "claude-sonnet-4-20250514"
 # _PROVIDER = "anthropic"
 
-# ── TESTING (OpenAI gpt-4o-mini — cheap for UI testing) ──
+# ── TESTING (Groq Llama 3.3 70B — free, 30 RPM / 14,400 RPD) ──
+# Get a free key at https://console.groq.com
 from openai import AsyncOpenAI
-_client = AsyncOpenAI(api_key=os.getenv("OPENAI_API_KEY"))
-MODEL = "gpt-4o-mini"
+_client = AsyncOpenAI(
+    base_url="https://api.groq.com/openai/v1",
+    api_key=os.getenv("GROQ_API_KEY"),
+)
+MODEL = "llama-3.3-70b-versatile"
 _PROVIDER = "openai"
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
