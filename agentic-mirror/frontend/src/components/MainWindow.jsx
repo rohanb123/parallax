@@ -92,7 +92,7 @@ function Scene({
         orbitRef={orbitRef}
         defaultPosition={[0, 0, 10]}
         offset={[0, 2.5, 9]}
-        damping={0.04}
+        damping={0.08}
       />
 
       {/* Lighting */}
@@ -208,6 +208,7 @@ function ChevronDown() {
 
 export default function MainWindow() {
   const [isChatOpen, setIsChatOpen] = useState(false);
+  const [chatSize, setChatSize] = useState("large"); // "small" = 25vh, "large" = 75vh
   const navigate = useNavigate();
   const location = useLocation();
   const hasStartedRef = useRef(false);
@@ -253,6 +254,7 @@ export default function MainWindow() {
   // Auto-open the chat panel when the first round arrives
   useEffect(() => {
     if (rounds.length === 1 && !isChatOpen) {
+      setChatSize("small");
       setIsChatOpen(true);
     }
   }, [rounds.length]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -316,25 +318,39 @@ export default function MainWindow() {
         )}
       </AnimatePresence>
 
-      {/* Glassy Chat Overlay — slides up from bottom, draggable down, snaps to 75vh */}
+      {/* Glassy Chat Overlay — slides up from bottom, draggable, snaps to 25vh / 75vh */}
       <AnimatePresence>
         {isChatOpen && (
           <motion.div
+            key="chat-panel"
             initial={{ y: "100%" }}
-            animate={{ y: "0%" }}
+            animate={{ y: "0%", height: chatSize === "large" ? "75vh" : "25vh" }}
             exit={{ y: "100%" }}
             transition={{ type: "spring", damping: 30, stiffness: 300 }}
             drag="y"
             dragConstraints={{ top: 0, bottom: 0 }}
             dragElastic={0.3}
             onDragEnd={(_e, info) => {
-              // If dragged down more than 80px, close the panel
-              if (info.offset.y > 80) {
-                setIsChatOpen(false);
+              const draggedDown = info.offset.y > 0;
+              const distance = Math.abs(info.offset.y);
+
+              if (draggedDown && distance > 60) {
+                if (chatSize === "large") {
+                  // Large → snap to small
+                  setChatSize("small");
+                } else {
+                  // Small → close
+                  setIsChatOpen(false);
+                  setChatSize("large");
+                }
+              } else if (!draggedDown && distance > 60) {
+                if (chatSize === "small") {
+                  // Small → snap to large
+                  setChatSize("large");
+                }
               }
             }}
             className="absolute bottom-0 left-0 right-0 z-50
-                       h-[75vh]
                        glass-strong glass-texture
                        rounded-t-2xl
                        flex flex-col"
@@ -345,15 +361,30 @@ export default function MainWindow() {
               <div className="w-10 h-1 rounded-full bg-white/20" />
             </div>
 
-            {/* Down arrow to close */}
-            <button
-              onClick={() => setIsChatOpen(false)}
-              className="flex items-center justify-center w-full py-2
-                         text-white/20 hover:text-white/80
-                         transition-colors cursor-pointer"
-            >
-              <ChevronDown />
-            </button>
+            {/* Up arrow to expand (25% only) / Down arrow to close */}
+            <div className="flex items-center justify-center w-full py-2 gap-3">
+              {chatSize === "small" && (
+                <button
+                  onClick={() => setChatSize("large")}
+                  className="text-white/20 hover:text-white/80 transition-colors cursor-pointer rotate-180"
+                >
+                  <ChevronDown />
+                </button>
+              )}
+              <button
+                onClick={() => {
+                  if (chatSize === "large") {
+                    setChatSize("small");
+                  } else {
+                    setIsChatOpen(false);
+                    setChatSize("large");
+                  }
+                }}
+                className="text-white/20 hover:text-white/80 transition-colors cursor-pointer"
+              >
+                <ChevronDown />
+              </button>
+            </div>
 
             {/* Chat header */}
             <div className="px-6 pb-2 border-b border-white/[0.06]">
@@ -362,8 +393,11 @@ export default function MainWindow() {
               </h3>
             </div>
 
-            {/* Debate stream content */}
-            <div className="flex-1 overflow-y-auto">
+            {/* Debate stream content — stopPropagation prevents drag="y" from swallowing clicks */}
+            <div
+              className="flex-1 overflow-y-auto"
+              onPointerDownCapture={(e) => e.stopPropagation()}
+            >
               <DebateStream
                 rounds={rounds}
                 finalResult={finalResult}

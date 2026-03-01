@@ -241,9 +241,6 @@ function ConcernLabel({
   return (
     <div
       ref={labelRef}
-      onPointerDown={(e) => {
-        e.stopPropagation();
-      }}
       onClick={(e) => {
         e.stopPropagation();
         onClick();

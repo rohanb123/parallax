@@ -17,6 +17,34 @@ import { useState, useCallback, useRef } from "react";
 
 const API_BASE = "http://localhost:8000";
 
+/**
+ * Normalize a dialogue turn from the backend.
+ * Handles multiple response shapes:
+ *   1. { agent, text, summary }            — backend parsed correctly
+ *   2. { agent, argument, summary }         — backend sent argument key
+ *   3. { agent, text: "{\"argument\": ...}" } — raw JSON leaked through
+ * Always returns { agent, text, summary }.
+ */
+function normalizeTurn(turn) {
+  let text = turn.text ?? turn.argument ?? "";
+  let summary = turn.summary ?? "";
+
+  // If text looks like JSON containing argument/summary, parse it
+  if (typeof text === "string" && text.trimStart().startsWith("{")) {
+    try {
+      const parsed = JSON.parse(text);
+      if (parsed.argument) {
+        text = parsed.argument;
+        if (!summary && parsed.summary) summary = parsed.summary;
+      }
+    } catch (_) {
+      // not JSON — keep as-is
+    }
+  }
+
+  return { agent: turn.agent, text, summary };
+}
+
 export function useDebateStream() {
   // ── State ──
   const [rounds, setRounds] = useState([]);
@@ -163,8 +191,13 @@ export function useDebateStream() {
 
           if (event.type === "round") {
             console.log("[SSE] Round event received:", event.round);
+
+            // Normalize dialogue turns so both rounds state and queue see clean data
+            const normalizedDialogue = (event.dialogue || []).map(normalizeTurn);
+            const normalizedEvent = { ...event, dialogue: normalizedDialogue };
+
             setRounds((prev) => {
-              const updated = [...prev, event];
+              const updated = [...prev, normalizedEvent];
               console.log("[SSE] Rounds updated to:", updated.length, "rounds");
               return updated;
             });
@@ -172,8 +205,8 @@ export function useDebateStream() {
             setDominantAgent(event.dominant_agent || "");
 
             // Flatten dialogue turns into the sequential queue (skip rationalist)
-            if (event.dialogue) {
-              const newEntries = event.dialogue
+            if (normalizedDialogue.length > 0) {
+              const newEntries = normalizedDialogue
                 .filter((turn) => turn.agent !== "rationalist")
                 .map((turn) => ({
                   agent: turn.agent,

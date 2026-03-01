@@ -232,44 +232,25 @@ export default function ChatBubble({
               </div>
 
               {/* Footer controls */}
-              <div
-                className="flex items-center justify-between px-3 py-1.5"
-                style={{ borderTop: "1px solid rgba(255,255,255,0.04)" }}
-              >
-                {/* Previous button */}
-                <div>
-                  {hasPrev && (
-                    <button
-                      onClick={() => { onPrev?.(); resetAutoAdvance(); }}
-                      className="flex items-center gap-1 text-[11px] px-2.5 py-1 rounded-md
-                                 text-white/50 hover:text-white/80 hover:bg-white/10
-                                 transition-all duration-200 cursor-pointer"
-                      title="Previous"
-                    >
-                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                        <polyline points="15 18 9 12 15 6" />
-                      </svg>
-                      <span>Prev</span>
-                    </button>
-                  )}
-                </div>
-
-                {/* Next button */}
-                {hasNext && (
+              {hasPrev && (
+                <div
+                  className="flex items-center px-3 py-1.5"
+                  style={{ borderTop: "1px solid rgba(255,255,255,0.04)" }}
+                >
                   <button
-                    onClick={() => { onNext?.(); resetAutoAdvance(); }}
+                    onClick={() => { onPrev?.(); resetAutoAdvance(); }}
                     className="flex items-center gap-1 text-[11px] px-2.5 py-1 rounded-md
                                text-white/50 hover:text-white/80 hover:bg-white/10
                                transition-all duration-200 cursor-pointer"
-                    title="Next"
+                    title="Previous"
                   >
-                    <span>Next</span>
                     <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                      <polyline points="9 6 15 12 9 18" />
+                      <polyline points="15 18 9 12 15 6" />
                     </svg>
+                    <span>Prev</span>
                   </button>
-                )}
-              </div>
+                </div>
+              )}
             </div>
 
             {/* Caret / pointer triangle pointing down toward the sphere */}
