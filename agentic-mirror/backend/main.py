@@ -116,9 +116,12 @@ async def embeddings(request: EmbeddingsRequest):
 # Health check
 # ──────────────────────────────────────────────
 
+@app.get("/")
+async def root():
+    return {"status": "ok", "service": "parallax-backend"}
+
 @app.get("/health")
 async def health():
-    """Simple health check for Railway deployment."""
     return {"status": "ok", "project": "agentic-mirror"}
 
 
