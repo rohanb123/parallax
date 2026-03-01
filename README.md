@@ -211,18 +211,28 @@ agentic-mirror/
 
 ## Running Locally
 
-### Backend
+You need **two terminals** running simultaneously.
+
+### Terminal 1 — Backend (port 8000)
 ```bash
 cd agentic-mirror/backend
 pip install -r requirements.txt
-# Add your keys to .env
+# Add your ANTHROPIC_API_KEY and OPENAI_API_KEY to .env
 uvicorn main:app --reload --port 8000
 ```
 
-### Frontend
+### Terminal 2 — Frontend (port 5173)
 ```bash
 cd agentic-mirror/frontend
 npm install
 npm run dev
-# Opens on http://localhost:5173, proxies API calls to :8000
+```
+
+Open `http://localhost:5173` in your browser. The frontend proxies `/debate` and `/embeddings` to the backend automatically.
+
+### Test Scripts (no frontend needed)
+```bash
+cd agentic-mirror/backend
+python test_agents_demo.py      # Single round, 5 API calls, ~$0.01
+python test_full_debate.py      # Full 3-round debate, 16 API calls, ~$0.04
 ```
