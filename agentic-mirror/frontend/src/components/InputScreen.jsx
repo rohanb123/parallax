@@ -8,7 +8,7 @@
  *   - Navigates to /main on submit
  */
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useRef, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import { Canvas } from "@react-three/fiber";
@@ -61,6 +61,22 @@ export default function InputScreen() {
   const [selectedValue, setSelectedValue] = useState(null);
   const [isExiting, setIsExiting] = useState(false);
   const navigate = useNavigate();
+  const textareaRef = useRef(null);
+
+  useEffect(() => {
+    const el = textareaRef.current;
+    if (!el) return;
+    el.style.height = "auto";
+    const lineHeight = parseFloat(getComputedStyle(el).lineHeight) || 24;
+    const maxHeight = lineHeight * 7;
+    if (el.scrollHeight > maxHeight) {
+      el.style.height = maxHeight + "px";
+      el.style.overflowY = "auto";
+    } else {
+      el.style.height = el.scrollHeight + "px";
+      el.style.overflowY = "hidden";
+    }
+  }, [text]);
 
   const handleSubmit = useCallback(() => {
     if (!text.trim() || isExiting) return;
@@ -157,25 +173,27 @@ export default function InputScreen() {
               transition={{ duration: 0.6, delay: 0.3 }}
               className="relative w-full max-w-xl mb-8"
             >
-              <input
-                type="text"
+              <textarea
+                ref={textareaRef}
                 value={text}
                 onChange={(e) => setText(e.target.value)}
                 onKeyDown={handleKeyDown}
                 placeholder="Describe your dilemma..."
+                rows={1}
                 className="w-full px-6 py-4 pr-14
                            glass glass-texture
                            rounded-2xl
                            text-white placeholder-white/30
                            text-base
                            outline-none
+                           resize-none overflow-hidden
                            focus:border-white/25 focus:bg-white/[0.1]
                            transition-all duration-300"
               />
               <button
                 onClick={handleSubmit}
                 disabled={!text.trim()}
-                className="absolute right-3 top-1/2 -translate-y-1/2
+                className="absolute right-3 top-4
                            w-10 h-10 rounded-xl
                            flex items-center justify-center
                            glass-subtle
