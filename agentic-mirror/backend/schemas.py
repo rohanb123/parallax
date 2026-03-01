@@ -39,6 +39,7 @@ class DialogueTurn(BaseModel):
     """A single agent's argument within a debate round."""
     agent: str
     text: str
+    summary: str = ""
 
 
 class DebateRoundEvent(BaseModel):

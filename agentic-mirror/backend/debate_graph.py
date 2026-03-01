@@ -19,7 +19,7 @@ import json
 import logging
 from typing import AsyncGenerator, TypedDict
 
-from agents import BIAS_AGENTS, call_agent, build_round_prompt, client, MODEL
+from agents import BIAS_AGENTS, call_agent, build_round_prompt, llm_call, _extract_json_object
 
 logger = logging.getLogger(__name__)
 
@@ -100,6 +100,21 @@ async def run_debate(
 
         agent_outputs = dict(zip(active_agents, results))
 
+        # ── Parse bias agent JSON → extract argument + summary ──
+        agent_summaries: dict[str, str] = {}
+        for agent in active_agents:
+            raw = agent_outputs[agent]
+            try:
+                parsed_bias = _extract_json_object(raw)
+                agent_outputs[agent] = parsed_bias.get("argument", raw)
+                summary = parsed_bias.get("summary", "")
+                # Enforce 10-word limit
+                words = summary.split()
+                agent_summaries[agent] = " ".join(words[:10]) if words else ""
+            except (ValueError, json.JSONDecodeError):
+                # Fallback: use raw text, truncate first 10 words for summary
+                agent_summaries[agent] = " ".join(raw.split()[:10])
+
         for agent in active_agents:
             override = bias_overrides.get(agent, 100)
             if 0 < override < 100:
@@ -142,7 +157,7 @@ async def run_debate(
             "type": "round",
             "round": round_num,
             "dialogue": [
-                {"agent": agent, "text": text}
+                {"agent": agent, "text": text, "summary": agent_summaries.get(agent, "")}
                 for agent, text in agent_outputs.items()
             ],
             "scores": scores,
@@ -154,6 +169,10 @@ async def run_debate(
     # ── Generate bias-corrected recommendation ──
     recommendation = None
     try:
+        rec_system = (
+            "You are a neutral decision-making advisor. Give clear, actionable advice "
+            "that helps the user see past their cognitive bias. No JSON, just plain text."
+        )
         rec_prompt = (
             f"A user described this dilemma:\n\"{enriched_dilemma}\"\n\n"
             f"After analysis, their dominant cognitive bias is {dominant_agent.replace('_', ' ')} "
@@ -162,16 +181,7 @@ async def run_debate(
             f"In 2-3 sentences, give them a concrete, actionable recommendation that "
             f"corrects for this bias. Be direct and practical, not generic."
         )
-        message = await client.messages.create(
-            model=MODEL,
-            max_tokens=300,
-            system=(
-                "You are a neutral decision-making advisor. Give clear, actionable advice "
-                "that helps the user see past their cognitive bias. No JSON, just plain text."
-            ),
-            messages=[{"role": "user", "content": rec_prompt}],
-        )
-        recommendation = message.content[0].text
+        recommendation = await llm_call(rec_system, rec_prompt, max_tokens=300)
     except Exception as e:
         logger.warning("Failed to generate recommendation: %s", e)
 
