@@ -9,11 +9,12 @@
  *   - Slide-up glassy chat overlay at bottom (full log)
  */
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
-import { Canvas } from "@react-three/fiber";
+import { Canvas, useFrame } from "@react-three/fiber";
 import { OrbitControls, Html } from "@react-three/drei";
 import { motion, AnimatePresence } from "framer-motion";
+import * as THREE from "three";
 import AgentSphere from "./AgentSphere";
 import ConnectionLines from "./ConnectionLines";
 import AuroraFloor from "./AuroraFloor";
@@ -22,7 +23,7 @@ import ChatBubble from "./ChatBubble";
 import CameraController from "../hooks/useCameraControl";
 import HelpPanel from "./HelpPanel";
 import { useDebateStream } from "../hooks/useDebateStream";
-import { AGENT_COLORS, AGENT_DISPLAY_NAMES } from "../utils/agentColors";
+import { AGENT_COLORS, AGENT_DISPLAY_NAMES, BIAS_AGENT_KEYS } from "../utils/agentColors";
 
 // Tetrahedral (triangular pyramid) vertex positions — user in center
 const R = 3;
@@ -33,15 +34,6 @@ const SPHERE_POSITIONS = {
   optimism_bias: [(R * Math.sqrt(6)) / 3, -R / 3, -(R * Math.SQRT2) / 3], // back-right
   status_quo: [-(R * Math.sqrt(6)) / 3, -R / 3, -(R * Math.SQRT2) / 3],   // back-left
 };
-
-// All positions array for ConnectionLines (user first, then biases)
-const ALL_POSITIONS = [
-  SPHERE_POSITIONS.user,
-  SPHERE_POSITIONS.loss_aversion,
-  SPHERE_POSITIONS.sunk_cost,
-  SPHERE_POSITIONS.optimism_bias,
-  SPHERE_POSITIONS.status_quo,
-];
 
 /** Label rendered below each sphere */
 function SphereLabel({ position, label, color }) {
@@ -63,6 +55,64 @@ function SphereLabel({ position, label, color }) {
   );
 }
 
+const LERP_FACTOR = 0.038;
+/** Power > 1 pulls toward dominant bias; kept moderate so user node cannot overlap agent nodes */
+const WEIGHT_POWER = 1.75;
+/** Limit how far toward corners the center can go (0–1); keeps user ball away from overlapping agents */
+const MAX_PULL_RATIO = 0.62;
+/** During a turn, pull the ball slightly toward the node that is currently speaking */
+const SPEAKER_PULL = 0.1;
+
+/** Center node: drifts to score-based position between rounds and at end; drifts a little toward current speaker during turns */
+function DecisionCenter({ scores, centerPos, setCenterPos, isDebating, currentSpeaker }) {
+  const currentRef = useRef(new THREE.Vector3(centerPos[0], centerPos[1], centerPos[2]));
+
+  useFrame(() => {
+    const total = BIAS_AGENT_KEYS.reduce((s, k) => s + (scores[k] || 0), 0) || 100;
+    const weights = BIAS_AGENT_KEYS.map((k) =>
+      Math.pow((scores[k] || 0) / total, WEIGHT_POWER)
+    );
+    const sumW = weights.reduce((a, b) => a + b, 0) || 1;
+    let x = 0, y = 0, z = 0;
+    BIAS_AGENT_KEYS.forEach((key, i) => {
+      const w = weights[i] / sumW;
+      const p = SPHERE_POSITIONS[key];
+      x += p[0] * w;
+      y += p[1] * w;
+      z += p[2] * w;
+    });
+    const target = new THREE.Vector3(x, y, z);
+    const len = target.length();
+    if (len > 0.001) {
+      const maxLen = Math.max(...BIAS_AGENT_KEYS.map((k) => new THREE.Vector3(...SPHERE_POSITIONS[k]).length()));
+      target.normalize().multiplyScalar(Math.min(len, maxLen * MAX_PULL_RATIO));
+    }
+    // While someone is speaking, nudge target toward that node so the ball drifts a little in their direction
+    if (isDebating && currentSpeaker && SPHERE_POSITIONS[currentSpeaker]) {
+      const speakerPos = new THREE.Vector3(...SPHERE_POSITIONS[currentSpeaker]);
+      target.lerp(speakerPos, SPEAKER_PULL);
+    }
+    currentRef.current.lerp(target, LERP_FACTOR);
+    setCenterPos([currentRef.current.x, currentRef.current.y, currentRef.current.z]);
+  });
+
+  return (
+    <>
+      <AgentSphere
+        position={centerPos}
+        color="#E2E8F0"
+        score={50}
+        isDominant={false}
+        isDebating={isDebating}
+        isSpeaking={false}
+        agentName="user"
+        radius={0.42}
+      />
+      <SphereLabel position={centerPos} label="You" color="#E2E8F0" />
+    </>
+  );
+}
+
 /** The Three.js scene with all spheres and connections */
 function Scene({
   scores,
@@ -77,6 +127,19 @@ function Scene({
   hasPrevBubble,
 }) {
   const orbitRef = useRef();
+  const [centerPos, setCenterPos] = useState([0, 0, 0]);
+
+  // Positions for connection lines: moving center first, then the four bias corners
+  const linePositions = useMemo(
+    () => [
+      centerPos,
+      SPHERE_POSITIONS.loss_aversion,
+      SPHERE_POSITIONS.sunk_cost,
+      SPHERE_POSITIONS.optimism_bias,
+      SPHERE_POSITIONS.status_quo,
+    ],
+    [centerPos]
+  );
 
   // Compute the camera target position (the sphere the bubble is on)
   const cameraTarget = activeTurn ? SPHERE_POSITIONS[activeTurn.agent] || null : null;
@@ -116,23 +179,16 @@ function Scene({
       {/* Aurora ground plane */}
       <AuroraFloor y={-4.5} />
 
-      {/* Connection lines between all spheres */}
-      <ConnectionLines positions={ALL_POSITIONS} />
+      {/* Connection lines: center first (moves with scores), then bias corners */}
+      <ConnectionLines positions={linePositions} />
 
-      {/* User center ball */}
-      <AgentSphere
-        position={SPHERE_POSITIONS.user}
-        color="#E2E8F0"
-        score={50}
-        isDominant={false}
+      {/* Center node — drifts to score-based spot between rounds and at end; drifts slightly toward current speaker during turns */}
+      <DecisionCenter
+        scores={scores}
+        centerPos={centerPos}
+        setCenterPos={setCenterPos}
         isDebating={isDebating}
-        isSpeaking={false}
-        agentName="user"
-      />
-      <SphereLabel
-        position={SPHERE_POSITIONS.user}
-        label="You"
-        color="#E2E8F0"
+        currentSpeaker={currentSpeaker}
       />
 
       {/* Bias agent spheres + chat bubble on active speaker */}
@@ -208,7 +264,6 @@ function ChevronDown() {
 
 export default function MainWindow() {
   const [isChatOpen, setIsChatOpen] = useState(false);
-  const [chatSize, setChatSize] = useState("large"); // "small" = 25vh, "large" = 75vh
   const navigate = useNavigate();
   const location = useLocation();
   const hasStartedRef = useRef(false);
@@ -251,13 +306,14 @@ export default function MainWindow() {
     return () => stopDebate();
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Auto-open the chat panel when the first round arrives
+  // Auto-close the last debate bubble after 3 seconds
   useEffect(() => {
-    if (rounds.length === 1 && !isChatOpen) {
-      setChatSize("small");
-      setIsChatOpen(true);
-    }
-  }, [rounds.length]); // eslint-disable-line react-hooks/exhaustive-deps
+    if (!activeTurn || hasNextBubble) return;
+    const t = setTimeout(() => {
+      closeDialogue();
+    }, 3000);
+    return () => clearTimeout(t);
+  }, [activeTurn, hasNextBubble, closeDialogue]);
 
   return (
     <div className="relative w-full h-screen bg-[#111118] overflow-hidden">
@@ -318,69 +374,27 @@ export default function MainWindow() {
         )}
       </AnimatePresence>
 
-      {/* Glassy Chat Overlay — slides up from bottom, draggable, snaps to 25vh / 75vh */}
+      {/* Glassy Chat Overlay — open or collapsed only */}
       <AnimatePresence>
         {isChatOpen && (
           <motion.div
             key="chat-panel"
             initial={{ y: "100%" }}
-            animate={{ y: "0%", height: chatSize === "large" ? "75vh" : "25vh" }}
+            animate={{ y: "0%" }}
             exit={{ y: "100%" }}
             transition={{ type: "spring", damping: 30, stiffness: 300 }}
-            drag="y"
-            dragConstraints={{ top: 0, bottom: 0 }}
-            dragElastic={0.3}
-            onDragEnd={(_e, info) => {
-              const draggedDown = info.offset.y > 0;
-              const distance = Math.abs(info.offset.y);
-
-              if (draggedDown && distance > 60) {
-                if (chatSize === "large") {
-                  // Large → snap to small
-                  setChatSize("small");
-                } else {
-                  // Small → close
-                  setIsChatOpen(false);
-                  setChatSize("large");
-                }
-              } else if (!draggedDown && distance > 60) {
-                if (chatSize === "small") {
-                  // Small → snap to large
-                  setChatSize("large");
-                }
-              }
-            }}
             className="absolute bottom-0 left-0 right-0 z-50
                        glass-strong glass-texture
                        rounded-t-2xl
                        flex flex-col"
-            style={{ position: 'absolute', touchAction: 'none' }}
+            style={{ position: "absolute", height: "50vh" }}
           >
-            {/* Drag handle */}
-            <div className="flex items-center justify-center w-full pt-3 pb-1 cursor-grab active:cursor-grabbing">
-              <div className="w-10 h-1 rounded-full bg-white/20" />
-            </div>
-
-            {/* Up arrow to expand (25% only) / Down arrow to close */}
-            <div className="flex items-center justify-center w-full py-2 gap-3">
-              {chatSize === "small" && (
-                <button
-                  onClick={() => setChatSize("large")}
-                  className="text-white/20 hover:text-white/80 transition-colors cursor-pointer rotate-180"
-                >
-                  <ChevronDown />
-                </button>
-              )}
+            {/* Down arrow to close */}
+            <div className="flex items-center justify-center w-full py-2">
               <button
-                onClick={() => {
-                  if (chatSize === "large") {
-                    setChatSize("small");
-                  } else {
-                    setIsChatOpen(false);
-                    setChatSize("large");
-                  }
-                }}
+                onClick={() => setIsChatOpen(false)}
                 className="text-white/20 hover:text-white/80 transition-colors cursor-pointer"
+                aria-label="Close chat"
               >
                 <ChevronDown />
               </button>
@@ -406,6 +420,76 @@ export default function MainWindow() {
                 onDialogueClick={goToDialogue}
                 activeDialogueIndex={activeDialogueIndex}
               />
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Final results panel — right side of display, shown after the last debate popup closes */}
+      <AnimatePresence>
+        {finalResult && !isDebating && activeTurn == null && (
+          <motion.div
+            initial={{ opacity: 0, x: 20 }}
+            animate={{ opacity: 1, x: 0 }}
+            exit={{ opacity: 0, x: 20 }}
+            transition={{ duration: 0.35, ease: [0.25, 0.46, 0.45, 0.94] }}
+            className="fixed right-8 top-1/2 -translate-y-1/2 z-40 w-[300px] rounded-2xl overflow-hidden
+                       glass-strong glass-texture
+                       border border-white/[0.1]"
+          >
+            <div className="px-4 py-3 border-b border-white/[0.08]">
+              <h3 className="text-sm font-semibold text-white/80 tracking-tight">
+                Final result
+              </h3>
+            </div>
+            <div className="p-4 space-y-4">
+              <div>
+                <p className="text-[10px] text-white/40 uppercase tracking-wide font-semibold mb-1">
+                  Dominant bias
+                </p>
+                <p
+                  className="text-base font-bold"
+                  style={{ color: AGENT_COLORS[finalResult.dominant_bias] || "#E2E8F0" }}
+                >
+                  {AGENT_DISPLAY_NAMES[finalResult.dominant_bias] || finalResult.dominant_bias}
+                  <span className="text-white/50 text-sm font-normal ml-1.5">
+                    {finalResult.dominance_percentage}%
+                  </span>
+                </p>
+              </div>
+              <div>
+                <p className="text-[10px] text-white/40 uppercase tracking-wide font-semibold mb-2">
+                  Weightages
+                </p>
+                <div className="space-y-1.5">
+                  {BIAS_AGENT_KEYS.map((key) => (
+                    <div key={key} className="flex items-center justify-between gap-2">
+                      <div className="flex items-center gap-2">
+                        <span
+                          className="w-2 h-2 rounded-full shrink-0"
+                          style={{ backgroundColor: AGENT_COLORS[key] }}
+                        />
+                        <span className="text-xs text-white/75">
+                          {AGENT_DISPLAY_NAMES[key]}
+                        </span>
+                      </div>
+                      <span className="text-xs font-medium text-white/85 tabular-nums">
+                        {scores[key] ?? 0}%
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+              {finalResult.bias_corrected_recommendation && (
+                <div className="pt-2 border-t border-white/[0.06]">
+                  <p className="text-[10px] text-white/40 uppercase tracking-wide font-semibold mb-1">
+                    Recommendation
+                  </p>
+                  <p className="text-xs text-white/65 leading-relaxed">
+                    {finalResult.bias_corrected_recommendation}
+                  </p>
+                </div>
+              )}
             </div>
           </motion.div>
         )}

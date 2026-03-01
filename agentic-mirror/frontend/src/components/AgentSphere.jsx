@@ -115,6 +115,7 @@ function GlowMaterial({ color, opacity = 0.18 }) {
  * @param {boolean} props.isDebating — Whether the debate is running
  * @param {boolean} props.isSpeaking — Whether this agent is currently speaking
  * @param {string} props.agentName — Agent identifier string
+ * @param {number} [props.radius] — Optional fixed radius; overrides score-based scale when set
  */
 export default function AgentSphere({
   position = [0, 0, 0],
@@ -124,12 +125,13 @@ export default function AgentSphere({
   isDebating = false,
   isSpeaking = false,
   agentName = "",
+  radius,
 }) {
   const meshRef = useRef();
   const glowRef = useRef();
 
-  // Scale sphere size based on score (0-100 → 0.3-1.2 radius)
-  const baseScale = 0.3 + (score / 100) * 0.9;
+  // Scale: use explicit radius if provided, else from score (0-100 → 0.3-1.2)
+  const baseScale = radius !== undefined ? radius : 0.3 + (score / 100) * 0.9;
 
   // Procedural roughness texture (shared singleton)
   const roughnessMap = useMemo(() => getRoughnessMap(), []);
