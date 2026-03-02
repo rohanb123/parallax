@@ -1,239 +1,206 @@
-# Agentic Mirror
+# Parallax
 
-A cognitive debugger that visualizes hidden biases in human decision-making using multi-agent AI debate.
+**IrvineHacks 2026** — Multi-agent cognitive bias debugger.
 
-## How It Works
+**[Live Demo](put_link)**
 
-The user describes a dilemma they're facing. Four AI bias agents argue over the user's words, a neutral Rationalist scores who's winning, and the results are visualized in real time.
+---
 
-### Full Pipeline
+## What is this?
 
-```
-┌─────────────────────────────────────────────────────────────────────┐
-│  FRONTEND (React + Vite, port 5173)                                │
-│                                                                     │
-│  1. User types a dilemma into InputScreen                          │
-│     "I've spent 4 years in law school but I want to start a        │
-│      startup. My savings would only last 6 months..."              │
-│                                                                     │
-│  2. App calls useDebateStream.startDebate(dilemma, biasOverrides)  │
-│     → POST /debate as SSE stream                                   │
-└────────────────────────────┬────────────────────────────────────────┘
-                             │
-                             ▼
-┌─────────────────────────────────────────────────────────────────────┐
-│  BACKEND (FastAPI, port 8000)                                      │
-│                                                                     │
-│  3. /debate endpoint initializes DebateState and runs the          │
-│     LangGraph debate graph (3 rounds, streamed via SSE)            │
-│                                                                     │
-│  ┌─────────────────────────────────────────────────────┐  │
-│  │                                                               │  │
-│  │  4. Parallel Fan-Out — 4 bias agents call Claude Sonnet 4     │  │
-│  │     simultaneously, each with their own system prompt:        │  │
-│  │                                                               │  │
-│  │     ┌──────────────┐  ┌──────────────┐                       │  │
-│  │     │Loss Aversion │  │  Sunk Cost   │                       │  │
-│  │     │ "Your 6-month│  │ "You've spent│                       │  │
-│  │     │  runway is a │  │  4 years in  │                       │  │
-│  │     │  death clock" │  │  law school" │                       │  │
-│  │     └──────┬───────┘  └──────┬───────┘                       │  │
-│  │            │                 │                                │  │
-│  │     ┌──────┴───────┐  ┌─────┴────────┐                       │  │
-│  │     │  Optimism    │  │  Status Quo  │                       │  │
-│  │     │  Bias        │  │  Bias        │                       │  │
-│  │     │ "Startups    │  │ "Your law    │                       │  │
-│  │     │  have 10x    │  │  career is   │                       │  │
-│  │     │  upside!"    │  │  stable"     │                       │  │
-│  │     └──────┬───────┘  └──────┬───────┘                       │  │
-│  │            │                 │                                │  │
-│  │            └────────┬────────┘                                │  │
-│  │                     ▼                                         │  │
-│  │  5. Fan-In — The Rationalist receives all 4 arguments         │  │
-│  │     and scores each agent's dominance over the user's         │  │
-│  │     original text (scores must sum to 100):                   │  │
-│  │                                                               │  │
-│  │     {                                                         │  │
-│  │       "scores": {                                             │  │
-│  │         "loss_aversion": 35,                                  │  │
-│  │         "sunk_cost": 30,                                      │  │
-│  │         "optimism_bias": 15,                                  │  │
-│  │         "status_quo": 20                                      │  │
-│  │       },                                                      │  │
-│  │       "dominant_agent": "loss_aversion",                      │  │
-│  │       "key_phras ROUND 1 es": ["savings", "only last", "6 months"],    │  │
-│  │       "rationalist_summary": "Fear of financial ruin is       │  │
-│  │         the strongest undercurrent in this decision."          │  │
-│  │     }                                                         │  │
-│  │                                                               │  │
-│  │  6. Emit SSE event → DebateRoundEvent                         │  │
-│  │                                                               │  │
-│  └───────────────────────────────────────────────────────────────┘  │
-│                                                                     │
-│  7. Rounds 2 & 3 repeat the same loop. Each round, agents          │
-│     receive the full history + last scores, so they counter        │
-│     each other's arguments and fight for dominance.                │
-│                                                                     │
-│  8. After Round 3 → emit FinalEvent with dominant bias,            │
-│     dominance %, and a bias-corrected recommendation.              │
-│                                                                     │
-└────────────────────────────┬────────────────────────────────────────┘
-                             │
-                             ▼
-┌─────────────────────────────────────────────────────────────────────┐
-│  FRONTEND — Real-Time Visualization (during debate)                │
-│                                                                     │
-│  9. useDebateStream parses each SSE event and updates React state  │
-│                                                                     │
-│  ┌─────────────┐  ┌──────────────────┐  ┌───────────────────┐      │
-│  │  Parliament  │  │   Force Graph    │  │   Bias Sliders    │      │
-│  │  (Three.js)  │  │   (3D nodes)     │  │   (Radix UI)      │      │
-│  │              │  │                  │  │                   │      │
-│  │  3D spheres  │  │  User node gets  │  │  0-100% per agent │      │
-│  │  grow/shrink │  │  pulled toward   │  │  Drag to override │      │
-│  │  by score    │  │  dominant agent  │  │  and re-run       │      │
-│  └─────────────┘  └──────────────────┘  └───────────────────┘      │
-│                                                                     │
-│  ┌──────────────────────────────────────────────────────────┐      │
-│  │  Debate Stream — scrolling chat log of agent arguments   │      │
-│  │  Color-coded by agent, animated with Framer Motion       │      │
-│  └──────────────────────────────────────────────────────────┘      │
-│                                                                     │
-└────────────────────────────┬────────────────────────────────────────┘
-                             │
-                        After Round 3
-                             │
-                             ▼
-┌─────────────────────────────────────────────────────────────────────┐
-│  EMBEDDINGS PIPELINE (post-debate)                                 │
-│                                                                     │
-│  10. Frontend collects all agent sentences + user input             │
-│      → POST /embeddings                                            │
-│                                                                     │
-│  11. Backend pipeline:                                              │
-│      a. embed_texts() — OpenAI text-embedding-3-small              │
-│         Converts each sentence to a 1536-dim vector                │
-│      b. reduce_to_2d() — PCA(n_components=2)                       │
-│         Projects 1536-dim → 2D coordinates                         │
-│      c. label_axes() — Claude names each axis                      │
-│         e.g. "Risk vs Safety" / "Past vs Future"                   │
-│                                                                     │
-│  12. Returns EmbeddingsResponse:                                    │
-│      { points: [{x, y, label, agent}, ...],                        │
-│        user_point: {x, y},                                         │
-│        axes: {x: "Risk vs Safety", y: "Past vs Future"} }         │
-│                                                                     │
-│  13. Heatmap component renders a D3 scatter plot:                   │
-│      - Agent sentences plotted as colored dots                      │
-│      - User's words plotted as a highlighted marker                 │
-│      - Shows which bias cluster the user's language falls into     │
-│                                                                     │
-│  14. ResultBanner reveals the dominant bias, percentage,            │
-│      and a bias-corrected recommendation.                           │
-│                                                                     │
-└─────────────────────────────────────────────────────────────────────┘
-```
+You describe a dilemma you're stuck on. Four AI agents — each locked into a specific cognitive bias — argue over your words for 3 rounds. A neutral Rationalist scores who's winning. Everything streams live into a 3D visualization so you can actually *see* which bias is pulling hardest on your thinking.
 
-### The Five Agents
+You can then drag sliders to suppress specific biases and re-run the whole thing.
 
-| Agent | Role | Perspective |
-|-------|------|-------------|
-| **Loss Aversion** | Bias agent | Fixates on downside risk, worst-case scenarios, fear of losing what you have |
-| **Sunk Cost** | Bias agent | Argues past investment (time, money, identity) justifies staying the course |
-| **Optimism Bias** | Bias agent | Cherry-picks positive data, assumes the user is uniquely capable |
-| **Status Quo** | Bias agent | Argues the current state is safe and any change carries hidden costs |
-| **Rationalist** | Moderator | Scores each agent's dominance (0-100, sum=100), extracts key phrases |
+---
 
-### Key Design Decisions
+## Agents
 
-- **3 rounds exactly** — enough for agents to counter each other, not so many that costs spike
-- **Scores always sum to 100** — forces relative comparison, not absolute
-- **SSE over WebSockets** — simpler protocol, one-directional streaming is all we need
-- **PCA over UMAP by default** — fast, deterministic, good enough for visualization
-- **Bias sliders** — users can suppress/amplify specific agents and re-run the debate
+| Agent | Role | What it does |
+|-------|------|--------------|
+| **Loss Aversion** | Bias | Fixates on downside risk and worst-case scenarios |
+| **Sunk Cost** | Bias | Argues past investment justifies staying the course |
+| **Optimism Bias** | Bias | Cherry-picks positive data, underweights risk |
+| **Status Quo** | Bias | Argues the current state is safe, change is dangerous |
+| **Rationalist** | Moderator | Scores each agent 0–100 (must sum to 100), extracts key phrases |
+
+---
 
 ## Tech Stack
 
-### Backend
-- **FastAPI** — async API with SSE streaming
-- **LangGraph** — multi-agent orchestration (parallel fan-out, join, conditional loop)
-- **Claude Sonnet 4** (`claude-sonnet-4-20250514`) — powers all 5 agents
-- **OpenAI** (`text-embedding-3-small`) — sentence embeddings for the heatmap
-- **scikit-learn** — PCA dimensionality reduction
+**Backend:** FastAPI, LangGraph, Claude Sonnet 4, OpenAI embeddings (`text-embedding-3-small`), scikit-learn (PCA), Python 3.12
 
-### Frontend
-- **React 18** + **Vite** — fast dev server with HMR
-- **Three.js** (`@react-three/fiber`) — 3D Parliament sphere visualization
-- **react-force-graph-3d** — force-directed agent influence graph
-- **D3.js** — 2D embedding heatmap/scatter plot
-- **Framer Motion** — animated debate stream
-- **Radix UI** — accessible bias slider controls
-- **Tailwind CSS** — dark-mode-only styling
+**Frontend:** React 18 + Vite, Three.js (`@react-three/fiber`), react-force-graph-3d, D3.js, Framer Motion, Radix UI, Tailwind CSS
+
+**Deployed on:** Netlify (frontend) + Railway (backend)
+
+---
 
 ## Project Structure
 
 ```
 agentic-mirror/
 ├── backend/
-│   ├── main.py              # FastAPI app — /debate (SSE) + /embeddings
-│   ├── agents.py            # 5 agent system prompts + Claude API wrapper
-│   ├── debate_graph.py      # LangGraph debate loop (fan-out → join → loop)
-│   ├── embeddings.py        # OpenAI embeddings + PCA + axis labeling
-│   ├── schemas.py           # Pydantic request/response models
-│   ├── requirements.txt     # Python dependencies
-│   └── .env                 # API keys (ANTHROPIC_API_KEY, OPENAI_API_KEY)
+│   ├── main.py              # FastAPI app, /debate + /embeddings
+│   ├── agents.py            # Agent prompts + Claude calls
+│   ├── debate_graph.py      # LangGraph debate loop
+│   ├── embeddings.py        # OpenAI embed + PCA
+│   ├── schemas.py           # Pydantic models
+│   ├── requirements.txt
+│   ├── runtime.txt          # Python 3.12
+│   ├── .env.example
+│   ├── test_agents_demo.py  # Quick single-round test
+│   └── test_full_debate.py  # Full 3-round test
 │
 └── frontend/
     ├── src/
-    │   ├── App.jsx              # Root — phase management (input/debating/result)
-    │   ├── main.jsx             # React entry point
-    │   ├── index.css            # Tailwind + dark mode base styles
+    │   ├── App.jsx
+    │   ├── main.jsx
+    │   ├── index.css
     │   ├── hooks/
-    │   │   ├── useDebateStream.js   # SSE consumer — parses debate events
-    │   │   └── useEmbeddings.js     # Fetches 2D embedding coordinates
+    │   │   ├── useDebateStream.js
+    │   │   └── useEmbeddings.js
     │   ├── components/
-    │   │   ├── InputScreen.jsx      # Dilemma text input + keyword highlighting
-    │   │   ├── WorkspaceLayout.jsx  # 3-panel debate visualization layout
-    │   │   ├── Parliament.jsx       # Three.js canvas — 5 agent spheres
-    │   │   ├── AgentSphere.jsx      # Individual sphere (size = score)
-    │   │   ├── ForceGraph.jsx       # 3D force graph — user pulled by agents
-    │   │   ├── DebateStream.jsx     # Scrolling color-coded debate log
-    │   │   ├── BiasSliders.jsx      # 0-100% sliders to override bias weights
-    │   │   ├── Heatmap.jsx          # D3 scatter — embeddings in PCA space
-    │   │   └── ResultBanner.jsx     # Final dominant bias reveal
+    │   │   ├── HomeInputScreen.jsx
+    │   │   ├── InputScreen.jsx
+    │   │   ├── WorkspaceLayout.jsx
+    │   │   ├── Parliament.jsx       # 3D agent spheres
+    │   │   ├── AgentSphere.jsx
+    │   │   ├── ForceGraph.jsx       # 3D force graph
+    │   │   ├── DebateStream.jsx     # Scrolling debate log
+    │   │   ├── BiasSliders.jsx      # Override sliders
+    │   │   ├── Heatmap.jsx          # D3 embedding scatter
+    │   │   ├── ResultBanner.jsx
+    │   │   ├── ChatOverlay.jsx
+    │   │   ├── HelpPanel.jsx
+    │   │   └── StarfieldBackground.jsx
     │   └── utils/
-    │       └── agentColors.js       # Agent colors, names, keys
+    │       └── agentColors.js
     ├── index.html
     ├── package.json
     ├── vite.config.js
     └── tailwind.config.js
 ```
 
-## Running Locally
+---
 
-You need **two terminals** running simultaneously.
+## Setup
 
-### Terminal 1 — Backend (port 8000)
+### Prerequisites
+
+- Python 3.12+
+- Node.js 18+
+- Anthropic API key
+- OpenAI API key
+
+### Backend
+
 ```bash
 cd agentic-mirror/backend
+python -m venv venv
+source venv/bin/activate   # Windows: .\venv\Scripts\Activate
 pip install -r requirements.txt
-# Add your ANTHROPIC_API_KEY and OPENAI_API_KEY to .env
+
+cp .env.example .env
+# Fill in ANTHROPIC_API_KEY and OPENAI_API_KEY
+
 uvicorn main:app --reload --port 8000
 ```
 
-### Terminal 2 — Frontend (port 5173)
+### Frontend (separate terminal)
+
 ```bash
 cd agentic-mirror/frontend
 npm install
 npm run dev
 ```
 
-Open `http://localhost:5173` in your browser. The frontend proxies `/debate` and `/embeddings` to the backend automatically.
+Open http://localhost:5173. The Vite dev server proxies API requests to the backend automatically.
 
-### Test Scripts (no frontend needed)
+---
+
+## Testing
+
+From `agentic-mirror/backend` with the venv active:
+
 ```bash
-cd agentic-mirror/backend
-python test_agents_demo.py      # Single round, 5 API calls, ~$0.01
-python test_full_debate.py      # Full 3-round debate, 16 API calls, ~$0.04
+python test_agents_demo.py      # Single round, ~$0.01
+python test_full_debate.py      # Full 3-round debate, ~$0.04
 ```
 
+---
+
+## How It Works
+
+1. User submits a dilemma via `POST /debate` (SSE stream)
+2. 4 bias agents call Claude in parallel, each arguing from their lens
+3. Rationalist scores all 4 arguments (scores sum to 100)
+4. SSE event fires — frontend updates all visualizations live
+5. Repeat for 3 rounds — agents counter each other using full history
+6. Final event reveals dominant bias + bias-corrected recommendation
+7. Post-debate: sentences get embedded (OpenAI), reduced to 2D (PCA), and plotted on a D3 heatmap
+
+Users can drag bias sliders to suppress/amplify agents and re-run. The graph shifts and a new recommendation comes back.
+
+---
+
+## Background
+
+Grounded in a few ideas from cognitive science:
+
+- **Dual Process Theory** (Kahneman) — bias agents act as System 1, the Rationalist as System 2
+- **Internal Family Systems** — each agent is a sub-personality with a narrow lens
+- **Externalization** — seeing a bias on screen reduces its emotional grip
+- **Digital Phenotyping** — the embeddings pipeline creates a linguistic fingerprint of the user's decision-making patterns
+
+---
+
+## API
+
+### `POST /debate`
+
+Streams SSE events (one per round + a final event).
+
+```json
+// request
+{
+  "dilemma": "Should I quit my job to start a VR meditation company?",
+  "bias_overrides": { "loss_aversion": 100, "sunk_cost": 100, "optimism_bias": 100, "status_quo": 100 }
+}
+
+// round event
+{
+  "round": 2,
+  "dialogue": [
+    { "agent": "loss_aversion", "text": "Your $50k disappears in 14 months..." },
+    { "agent": "optimism_bias", "text": "VR meditation CAGR is 34% through 2028..." }
+  ],
+  "scores": { "loss_aversion": 78, "sunk_cost": 12, "optimism_bias": 8, "status_quo": 2 },
+  "dominant_agent": "loss_aversion",
+  "key_phrases": ["$50k", "14 months", "wasting my life"],
+  "rationalist_summary": "Fear of financial loss is overwhelming forward-looking analysis."
+}
+```
+
+### `POST /embeddings`
+
+Returns 2D PCA coordinates for the heatmap.
+
+```json
+// request
+{ "sentences": ["sentence1", "sentence2"], "user_input": "original dilemma text" }
+
+// response
+{
+  "points": [{ "x": 0.3, "y": -0.7, "label": "fear of savings loss", "agent": "loss_aversion" }],
+  "user_point": { "x": 0.25, "y": -0.65 },
+  "axes": { "x": "Risk vs Safety", "y": "Past vs Future" }
+}
+```
+
+---
+
+## Team
+
+Built at **IrvineHacks 2026**
+ 

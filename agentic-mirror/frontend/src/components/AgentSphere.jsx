@@ -140,15 +140,16 @@ export default function AgentSphere({
     const time = state.clock.elapsedTime;
 
     if (meshRef.current) {
-      // Gentle pulsing — scale oscillates ±5% (faster when speaking)
+      // Gentle pulsing — scale oscillates (±12% when speaking, ±5% idle)
       const pulseSpeed = isSpeaking ? 4 : 2;
-      const pulse = 1 + Math.sin(time * pulseSpeed + position[0] * 3 + position[1] * 5) * 0.05;
+      const pulseAmp = isSpeaking ? 0.12 : 0.05;
+      const pulse = 1 + Math.sin(time * pulseSpeed + position[0] * 3 + position[1] * 5) * pulseAmp;
       meshRef.current.scale.setScalar(pulse);
 
       // Update emissive intensity — boosted when speaking
       const material = meshRef.current.material;
       if (material) {
-        const baseIntensity = isSpeaking ? 1.2 : isDominant ? 0.8 : 0.4;
+        const baseIntensity = isSpeaking ? 2.0 : isDominant ? 0.8 : 0.4;
         material.emissiveIntensity =
           baseIntensity + Math.sin(time * 1.5 + position[0]) * 0.15;
       }
@@ -160,7 +161,7 @@ export default function AgentSphere({
       glowRef.current.scale.setScalar(glowPulse);
       const glowMat = glowRef.current.material;
       if (glowMat && glowMat.uniforms) {
-        const baseOp = isSpeaking ? 0.4 : isDominant ? 0.28 : 0.18;
+        const baseOp = isSpeaking ? 0.6 : isDominant ? 0.28 : 0.18;
         glowMat.uniforms.baseOpacity.value =
           baseOp + Math.sin(time * 1.8 + position[0]) * 0.04;
       }

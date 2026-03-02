@@ -36,14 +36,14 @@ const SPHERE_POSITIONS = {
 };
 
 /** Label rendered below each sphere */
-function SphereLabel({ position, label, color }) {
+function SphereLabel({ position, label, color, visible = true }) {
   return (
     <Html
       position={[position[0], position[1] - 0.9, position[2]]}
       center
       distanceFactor={10}
       zIndexRange={[1, 0]}
-      style={{ pointerEvents: "none" }}
+      style={{ pointerEvents: "none", opacity: visible ? 1 : 0, transition: "opacity 0.6s ease" }}
     >
       <span
         className="text-xs font-medium whitespace-nowrap select-none"
@@ -55,6 +55,60 @@ function SphereLabel({ position, label, color }) {
   );
 }
 
+/**
+ * AnimatedSpawnGroup — scales up from 0 and glides from origin to final position.
+ * Used to give spheres a cinematic entrance when the debate scene loads.
+ */
+function AnimatedSpawnGroup({ targetPosition, delay = 0, onComplete, children }) {
+  const groupRef = useRef();
+  const progress = useRef(0);
+  const elapsed = useRef(0);
+  const completeFired = useRef(false);
+
+  useFrame((_, delta) => {
+    if (!groupRef.current) return;
+    elapsed.current += delta;
+    if (elapsed.current < delay) {
+      groupRef.current.scale.setScalar(0);
+      return;
+    }
+    if (progress.current < 1) {
+      // Ease-out cubic progress 0→1
+      progress.current = Math.min(progress.current + delta * 0.55, 1);
+      const t = 1 - Math.pow(1 - progress.current, 3);
+      // Scale up from 0
+      groupRef.current.scale.setScalar(t);
+      // Glide from origin [0,0,0] to target
+      groupRef.current.position.set(
+        targetPosition[0] * t,
+        targetPosition[1] * t,
+        targetPosition[2] * t,
+      );
+    } else {
+      // Spawn complete — track the target position (it may keep moving, e.g. user ball)
+      groupRef.current.scale.setScalar(1);
+      groupRef.current.position.set(targetPosition[0], targetPosition[1], targetPosition[2]);
+      if (!completeFired.current) {
+        completeFired.current = true;
+        onComplete?.();
+      }
+    }
+  });
+
+  return <group ref={groupRef} scale={0}>{children}</group>;
+}
+
+/** Drives a 0→1 fade over ~1s using useFrame; calls onUpdate each frame */
+function FadeInDriver({ active, onUpdate }) {
+  const val = useRef(0);
+  useFrame((_, delta) => {
+    if (!active || val.current >= 1) return;
+    val.current = Math.min(val.current + delta * 1.2, 1);
+    onUpdate(val.current);
+  });
+  return null;
+}
+
 const LERP_FACTOR = 0.038;
 /** Power > 1 pulls toward dominant bias; kept moderate so user node cannot overlap agent nodes */
 const WEIGHT_POWER = 1.75;
@@ -64,7 +118,7 @@ const MAX_PULL_RATIO = 0.62;
 const SPEAKER_PULL = 0.1;
 
 /** Center node: drifts to score-based position between rounds and at end; drifts a little toward current speaker during turns */
-function DecisionCenter({ scores, centerPos, setCenterPos, isDebating, currentSpeaker }) {
+function DecisionCenter({ scores, centerPos, setCenterPos, isDebating, currentSpeaker, labelsVisible }) {
   const currentRef = useRef(new THREE.Vector3(centerPos[0], centerPos[1], centerPos[2]));
 
   useFrame(() => {
@@ -98,17 +152,19 @@ function DecisionCenter({ scores, centerPos, setCenterPos, isDebating, currentSp
 
   return (
     <>
-      <AgentSphere
-        position={centerPos}
-        color="#E2E8F0"
-        score={50}
-        isDominant={false}
-        isDebating={isDebating}
-        isSpeaking={false}
-        agentName="user"
-        radius={0.42}
-      />
-      <SphereLabel position={centerPos} label="You" color="#E2E8F0" />
+      <AnimatedSpawnGroup targetPosition={centerPos} delay={0.3}>
+        <AgentSphere
+          position={[0, 0, 0]}
+          color="#E2E8F0"
+          score={50}
+          isDominant={false}
+          isDebating={isDebating}
+          isSpeaking={false}
+          agentName="user"
+          radius={0.42}
+        />
+        <SphereLabel position={[0, 0, 0]} label="You" color="#E2E8F0" visible={labelsVisible} />
+      </AnimatedSpawnGroup>
     </>
   );
 }
@@ -128,6 +184,8 @@ function Scene({
 }) {
   const orbitRef = useRef();
   const [centerPos, setCenterPos] = useState([0, 0, 0]);
+  const [spawnDone, setSpawnDone] = useState(false);
+  const [lineOpacity, setLineOpacity] = useState(0);
 
   // Positions for connection lines: moving center first, then the four bias corners
   const linePositions = useMemo(
@@ -179,8 +237,9 @@ function Scene({
       {/* Aurora ground plane */}
       <AuroraFloor y={-4.5} />
 
-      {/* Connection lines: center first (moves with scores), then bias corners */}
-      <ConnectionLines positions={linePositions} />
+      {/* Connection lines: center first (moves with scores), then bias corners — hidden until spawn finishes, then fades in */}
+      {spawnDone && <ConnectionLines positions={linePositions} opacity={lineOpacity} />}
+      <FadeInDriver active={spawnDone} onUpdate={setLineOpacity} />
 
       {/* Center node — drifts to score-based spot between rounds and at end; drifts slightly toward current speaker during turns */}
       <DecisionCenter
@@ -189,16 +248,22 @@ function Scene({
         setCenterPos={setCenterPos}
         isDebating={isDebating}
         currentSpeaker={currentSpeaker}
+        labelsVisible={spawnDone}
       />
 
       {/* Bias agent spheres + chat bubble on active speaker */}
       {["loss_aversion", "sunk_cost", "optimism_bias", "status_quo"].map(
-        (agent) => {
+        (agent, idx) => {
           const isActiveBubble = activeTurn?.agent === agent;
           return (
-            <group key={agent}>
+            <AnimatedSpawnGroup
+              key={agent}
+              targetPosition={SPHERE_POSITIONS[agent]}
+              delay={1.0 + idx * 0.4}
+              onComplete={idx === 3 ? () => setSpawnDone(true) : undefined}
+            >
               <AgentSphere
-                position={SPHERE_POSITIONS[agent]}
+                position={[0, 0, 0]}
                 color={AGENT_COLORS[agent]}
                 score={scores[agent] || 25}
                 isDominant={dominantAgent === agent}
@@ -207,14 +272,15 @@ function Scene({
                 agentName={agent}
               />
               <SphereLabel
-                position={SPHERE_POSITIONS[agent]}
+                position={[0, 0, 0]}
                 label={AGENT_DISPLAY_NAMES[agent]}
                 color={AGENT_COLORS[agent]}
+                visible={spawnDone}
               />
               {/* Chat bubble — only rendered on the active agent */}
               {isActiveBubble && (
                 <ChatBubble
-                  position={SPHERE_POSITIONS[agent]}
+                  position={[0, 0, 0]}
                   agentName={AGENT_DISPLAY_NAMES[agent]}
                   color={AGENT_COLORS[agent]}
                   text={activeTurn.text}
@@ -228,7 +294,7 @@ function Scene({
                   visible={true}
                 />
               )}
-            </group>
+            </AnimatedSpawnGroup>
           );
         }
       )}
@@ -264,6 +330,7 @@ function ChevronDown() {
 
 export default function MainWindow() {
   const [isChatOpen, setIsChatOpen] = useState(false);
+  const [showFinalResult, setShowFinalResult] = useState(false);
   const navigate = useNavigate();
   const location = useLocation();
   const hasStartedRef = useRef(false);
@@ -307,13 +374,32 @@ export default function MainWindow() {
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Auto-close the last debate bubble after 3 seconds
+  // Works both during streaming and after debate ends (for the final auto-advance)
   useEffect(() => {
     if (!activeTurn || hasNextBubble) return;
     const t = setTimeout(() => {
       closeDialogue();
+      // If the debate is done, show the final result panel
+      if (finalResult) {
+        setShowFinalResult(true);
+      }
     }, 3000);
     return () => clearTimeout(t);
-  }, [activeTurn, hasNextBubble, closeDialogue]);
+  }, [activeTurn, hasNextBubble, finalResult, closeDialogue]);
+
+  // Show final result panel once the debate is done and all bubbles have been dismissed
+  useEffect(() => {
+    if (finalResult && !isDebating && activeTurn == null) {
+      setShowFinalResult(true);
+    }
+  }, [finalResult, isDebating, activeTurn]);
+
+  // Hide final result when a chat bubble is opened by the user
+  useEffect(() => {
+    if (activeTurn != null) {
+      setShowFinalResult(false);
+    }
+  }, [activeTurn]);
 
   return (
     <div className="relative w-full h-screen bg-[#111118] overflow-hidden">
@@ -425,22 +511,31 @@ export default function MainWindow() {
         )}
       </AnimatePresence>
 
-      {/* Final results panel — right side of display, shown after the last debate popup closes */}
+      {/* Final results panel — middle-right of display, independent from chat bubbles */}
       <AnimatePresence>
-        {finalResult && !isDebating && activeTurn == null && (
+        {showFinalResult && finalResult && (
           <motion.div
-            initial={{ opacity: 0, x: 20 }}
-            animate={{ opacity: 1, x: 0 }}
-            exit={{ opacity: 0, x: 20 }}
+            initial={{ opacity: 0, x: 20, y: "-50%" }}
+            animate={{ opacity: 1, x: 0, y: "-50%" }}
+            exit={{ opacity: 0, x: 20, y: "-50%" }}
             transition={{ duration: 0.35, ease: [0.25, 0.46, 0.45, 0.94] }}
-            className="fixed right-8 top-1/2 -translate-y-1/2 z-40 w-[300px] rounded-2xl overflow-hidden
-                       glass-strong glass-texture
-                       border border-white/[0.1]"
+            className="!absolute !right-8 !top-1/2 z-40 w-[300px] rounded-2xl overflow-hidden glass-strong glass-texture border border-white/[0.1]"
           >
-            <div className="px-4 py-3 border-b border-white/[0.08]">
+            <div className="px-4 py-3 border-b border-white/[0.08] flex items-center justify-between">
               <h3 className="text-sm font-semibold text-white/80 tracking-tight">
                 Final result
               </h3>
+              {dialogueQueue.length > 0 && (
+                <button
+                  onClick={() => {
+                    setShowFinalResult(false);
+                    goToDialogue(dialogueQueue.length - 1);
+                  }}
+                  className="text-xs text-white/40 hover:text-white/70 transition-colors cursor-pointer"
+                >
+                  ← Previous
+                </button>
+              )}
             </div>
             <div className="p-4 space-y-4">
               <div>
